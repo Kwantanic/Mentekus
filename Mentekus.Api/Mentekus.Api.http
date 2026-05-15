@@ -1,11 +1,10 @@
-@Mentekus.Api_HostAddress = http://localhost:5277
+@Mentekus.Api_HostAddress = http://localhost:8080
 
-GET {{Mentekus.Api_HostAddress}}/todos/
-Accept: application/json
+POST http://localhost:8080/question/ask
+Content-Type: application/json
 
-###
-
-GET {{Mentekus.Api_HostAddress}}/todos/1
-Accept: application/json
+{
+  "question": "What is Mentekus?"
+}
 
 ###
