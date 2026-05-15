@@ -1,0 +1,8 @@
+﻿services:
+  mentekus.api:
+    image: mentekus.api
+    build:
+      context: .
+      dockerfile: Mentekus.Api/Dockerfile
+    ports:
+      - "8080:8080"
