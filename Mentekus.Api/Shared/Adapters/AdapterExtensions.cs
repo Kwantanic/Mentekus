@@ -1,6 +1,4 @@
-using Mentekus.Api.Shared.Adapters;
-
-namespace Microsoft.Extensions.DependencyInjection;
+namespace Mentekus.Api.Shared.Adapters;
 
 public static class AdapterExtensions
 {

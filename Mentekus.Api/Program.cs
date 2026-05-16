@@ -1,5 +1,7 @@
+using Mentekus.Api.Features;
 using Mentekus.Api.Features.Question;
 using Mentekus.Api.Serialization;
+using Mentekus.Api.Shared.Adapters;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -10,7 +12,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddAdapters();
-builder.Services.AddScoped<IQuestionService, QuestionService>();
+builder.Services.AddFeatures();
 
 builder.Services.AddOpenApi();
 
