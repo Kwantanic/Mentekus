@@ -1,5 +1,3 @@
-using System.Net.Http.Json;
-using System.Text.Json.Serialization;
 using Mentekus.Api.Serialization;
 
 namespace Mentekus.Api.Shared.Adapters;
@@ -11,7 +9,8 @@ public interface IOllamaAdapter
 
 public class OllamaAdapter(HttpClient httpClient) : IOllamaAdapter
 {
-    public async Task<OllamaEmbedResponse?> EmbedAsync(OllamaEmbedRequest request, CancellationToken cancellationToken = default)
+    public async Task<OllamaEmbedResponse?> EmbedAsync(OllamaEmbedRequest request,
+        CancellationToken cancellationToken = default)
     {
         using var response = await httpClient.PostAsJsonAsync(
             "api/embed",
@@ -27,10 +26,6 @@ public class OllamaAdapter(HttpClient httpClient) : IOllamaAdapter
     }
 }
 
-public sealed record OllamaEmbedRequest(
-    [property: JsonPropertyName("model")] string Model,
-    [property: JsonPropertyName("input")] string Input);
+public sealed record OllamaEmbedRequest(string Model, string Input);
 
-public sealed record OllamaEmbedResponse(
-    [property: JsonPropertyName("embeddings")]
-    float[][]? Embeddings);
+public sealed record OllamaEmbedResponse(float[][]? Embeddings);
