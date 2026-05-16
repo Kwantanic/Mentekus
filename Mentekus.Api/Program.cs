@@ -12,7 +12,6 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddAdapters();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
