@@ -1,5 +1,4 @@
-using System.Text.Json.Serialization;
-using Mentekus.Api.Serialization;
+using Mentekus.Api.Shared.Adapters;
 
 namespace Mentekus.Api.Features.Question;
 
@@ -8,7 +7,7 @@ public interface IQuestionService
     Task<string> AskAsync(string question, CancellationToken cancellationToken = default);
 }
 
-public class QuestionService(HttpClient httpClient, IConfiguration configuration) : IQuestionService
+public class QuestionService(IOllamaAdapter ollamaAdapter, IConfiguration configuration) : IQuestionService
 {
     public async Task<string> AskAsync(string question, CancellationToken cancellationToken = default)
     {
@@ -18,29 +17,10 @@ public class QuestionService(HttpClient httpClient, IConfiguration configuration
             model,
             question);
 
-        using var response = await httpClient.PostAsJsonAsync(
-            "api/embed",
-            request,
-            AppJsonSerializerContext.Default.OllamaEmbedRequest,
-            cancellationToken);
-
-        response.EnsureSuccessStatusCode();
-
-        var result = await response.Content.ReadFromJsonAsync(
-            AppJsonSerializerContext.Default.OllamaEmbedResponse,
-            cancellationToken);
+        var result = await ollamaAdapter.EmbedAsync(request, cancellationToken);
 
         var embeddingLength = result?.Embeddings?.FirstOrDefault()?.Length ?? 0;
 
         return $"You asked: {question}. Embedding length: {embeddingLength}";
     }
 }
-
-// TODO: move these
-internal sealed record OllamaEmbedRequest(
-    [property: JsonPropertyName("model")] string Model,
-    [property: JsonPropertyName("input")] string Input);
-
-internal sealed record OllamaEmbedResponse(
-    [property: JsonPropertyName("embeddings")]
-    float[][]? Embeddings);
