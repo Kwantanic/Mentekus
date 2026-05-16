@@ -10,7 +10,32 @@
       Ollama__BaseUrl: http://ollama:11434
       Ollama__Model: qwen3:4b-instruct
       Ollama__EmbeddingModel: qwen3-embedding:0.6b
-  
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=mentekus;Username=mentekus;Password=mentekus_dev_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: mentekus-postgres
+    environment:
+      POSTGRES_DB: mentekus
+      POSTGRES_USER: mentekus
+      POSTGRES_PASSWORD: mentekus_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./Postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U mentekus -d mentekus" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   ollama:
     build:
       context: ./ollama
@@ -31,3 +56,4 @@
 
 volumes:
   ollama_data:
+  postgres_data:
