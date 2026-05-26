@@ -1,5 +1,5 @@
 using Mentekus.Api.Serialization;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace Mentekus.Api.Shared.Adapters;
 
@@ -8,11 +8,11 @@ public interface IOllamaAdapter
     Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default);
 }
 
-public class OllamaAdapter(HttpClient httpClient, IConfiguration configuration) : IOllamaAdapter
+public class OllamaAdapter(HttpClient httpClient, IOptions<OllamaOptions> options) : IOllamaAdapter
 {
     public async Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default)
     {
-        var model = configuration["Ollama:EmbeddingModel"] ?? "qwen3-embedding:0.6b";
+        var model = options.Value.EmbeddingModel;
 
         var request = new OllamaEmbedRequest(model, text);
 

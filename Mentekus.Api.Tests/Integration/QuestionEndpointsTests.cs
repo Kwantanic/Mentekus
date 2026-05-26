@@ -28,7 +28,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var content = await response.Content.ReadAsStringAsync();
-        Assert.Contains(questionText, content);
+        Assert.Contains("Question saved (ID:", content);
         Assert.Contains("Embedding length: 3", content);
 
         // Verify the mock was called

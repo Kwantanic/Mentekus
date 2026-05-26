@@ -7,8 +7,7 @@ namespace Mentekus.Api.Tests.Integration;
 
 public class IntegrationTestBase : IAsyncLifetime
 {
-    protected readonly PostgreSqlContainer PostgreSqlContainer = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
+    protected readonly PostgreSqlContainer PostgreSqlContainer = new PostgreSqlBuilder("pgvector/pgvector:pg17")
         .Build();
 
     private TestWebApplicationFactory _factory = null!;

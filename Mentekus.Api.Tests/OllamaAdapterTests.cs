@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Mentekus.Api.Serialization;
 using Mentekus.Api.Shared.Adapters;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Moq;
 using Moq.Protected;
 using Xunit;
@@ -34,7 +34,8 @@ public class OllamaAdapterTests
         {
             BaseAddress = new Uri("http://localhost:11434")
         };
-        var adapter = new OllamaAdapter(httpClient, Mock.Of<IConfiguration>());
+        var options = Options.Create(new OllamaOptions { EmbeddingModel = "qwen3-embedding:0.6b" });
+        var adapter = new OllamaAdapter(httpClient, options);
         // Act
         var result = await adapter.EmbedAsync("input");
 

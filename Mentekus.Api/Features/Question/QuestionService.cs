@@ -30,12 +30,9 @@ public class QuestionService(
             CreatedAt = DateTime.UtcNow
         };
 
-        const string sql =
-            "INSERT INTO Questions (Id, Text, Embedding, CreatedAt) VALUES (@Id, @Text, @Embedding, @CreatedAt)";
-        await connection.ExecuteAsync(sql, questionEntity);
+        await connection.ExecuteAsync(QuestionSql.InsertQuestion, questionEntity);
 
-        return
-            $"You asked: {question}. Embedding length: {embedding?.Length ?? 0}. Saved to DB with ID: {questionEntity.Id}";
+        return $"Question saved (ID: {questionEntity.Id}). Embedding length: {embedding?.Length ?? 0}.";
     }
 
     public async Task<List<QuestionSimilarityResponse>> GetSimilarQuestionsAsync(string text, int limit,
@@ -47,16 +44,9 @@ public class QuestionService(
 
         var vector = new Vector(embedding);
 
-        const string sql = """
-                           SELECT Text, 1 - (Embedding <=> @Vector) AS Similarity
-                           FROM Questions
-                           WHERE Embedding IS NOT NULL
-                           ORDER BY Embedding <=> @Vector
-                           LIMIT @Limit
-                           """;
-
         var result =
-            await connection.QueryAsync<QuestionSimilarityResponse>(sql, new { Vector = vector, Limit = limit });
+            await connection.QueryAsync<QuestionSimilarityResponse>(QuestionSql.FindSimilarQuestions,
+                new { Vector = vector, Limit = limit });
         return result.ToList();
     }
 }
