@@ -2,5 +2,6 @@
   <Folder Name="/Solution Items/">
     <File Path="compose.yaml" />
   </Folder>
+  <Project Path="Mentekus.Api.Tests/Mentekus.Api.Tests.csproj" />
   <Project Path="Mentekus.Api/Mentekus.Api.csproj" />
 </Solution>

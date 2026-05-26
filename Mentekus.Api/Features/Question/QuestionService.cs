@@ -1,4 +1,7 @@
+using System.Data;
+using Dapper;
 using Mentekus.Api.Shared.Adapters;
+using Pgvector;
 
 namespace Mentekus.Api.Features.Question;
 
@@ -7,7 +10,10 @@ public interface IQuestionService
     Task<string> AskAsync(string question, CancellationToken cancellationToken = default);
 }
 
-public class QuestionService(IOllamaAdapter ollamaAdapter, IConfiguration configuration) : IQuestionService
+public class QuestionService(
+    IOllamaAdapter ollamaAdapter,
+    IConfiguration configuration,
+    IDbConnection connection) : IQuestionService
 {
     public async Task<string> AskAsync(string question, CancellationToken cancellationToken = default)
     {
@@ -19,8 +25,21 @@ public class QuestionService(IOllamaAdapter ollamaAdapter, IConfiguration config
 
         var result = await ollamaAdapter.EmbedAsync(request, cancellationToken);
 
-        var embeddingLength = result?.Embeddings?.FirstOrDefault()?.Length ?? 0;
+        var embedding = result?.Embeddings?.FirstOrDefault();
+        var embeddingLength = embedding?.Length ?? 0;
 
-        return $"You asked: {question}. Embedding length: {embeddingLength}";
+        var questionEntity = new Entities.Question
+        {
+            Id = Guid.NewGuid(),
+            Text = question,
+            Embedding = embedding != null ? new Vector(embedding) : null,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        const string sql =
+            "INSERT INTO Questions (Id, Text, Embedding, CreatedAt) VALUES (@Id, @Text, @Embedding, @CreatedAt)";
+        await connection.ExecuteAsync(sql, questionEntity);
+
+        return $"You asked: {question}. Embedding length: {embeddingLength}. Saved to DB with ID: {questionEntity.Id}";
     }
 }

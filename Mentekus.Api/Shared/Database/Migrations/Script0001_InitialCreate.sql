@@ -1,0 +1,8 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS Questions (
+    Id UUID PRIMARY KEY,
+    Text TEXT NOT NULL,
+    Embedding vector,
+    CreatedAt TIMESTAMP WITH TIME ZONE NOT NULL
+);
