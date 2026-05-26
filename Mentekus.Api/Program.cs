@@ -33,3 +33,7 @@ if (app.Environment.IsDevelopment())
 app.MapChatEndpoints();
 
 await app.RunAsync();
+
+public partial class Program
+{
+}

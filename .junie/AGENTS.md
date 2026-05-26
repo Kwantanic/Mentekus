@@ -28,10 +28,11 @@ The project is configured for **Native AOT** (`<PublishAot>true</PublishAot>`).
 
 - Use `WebApplication.CreateSlimBuilder(args)` for minimal footprint.
 - All types used in JSON serialization must be registered in `AppJsonSerializerContext`.
-- **Dapper.AOT** is used to ensure Dapper is AOT-compatible. 
-  - The project file must include `<InterceptorsPreviewNamespaces>$(InterceptorsPreviewNamespaces);Dapper.AOT</InterceptorsPreviewNamespaces>`.
-  - `[assembly: DapperAot]` must be present in the project (usually in `Program.cs`).
-  - Dapper.AOT uses C# Interceptors to replace reflection-based Dapper calls with AOT-friendly code at build time.
+- **Dapper.AOT** is used to ensure Dapper is AOT-compatible.
+    - The project file must include
+      `<InterceptorsPreviewNamespaces>$(InterceptorsPreviewNamespaces);Dapper.AOT</InterceptorsPreviewNamespaces>`.
+    - `[assembly: DapperAot]` must be present in the project (usually in `Program.cs`).
+    - Dapper.AOT uses C# Interceptors to replace reflection-based Dapper calls with AOT-friendly code at build time.
 
 ## 2. Testing Information
 
@@ -45,29 +46,79 @@ dotnet test
 
 ### Adding New Tests
 
-- **Unit Tests**: Use `xUnit` and `Moq`.
-- **Database Tests**: Since the project uses `pgvector`, standard `InMemoryDatabase` provider will fail for entities
-  containing `Vector` properties. For integration tests involving the database, use a real PostgreSQL instance (e.g.,
-  via Testcontainers).
+- **Unit Tests**: Use `xUnit` and `Moq`. These are suitable for business logic that does not depend on Dapper extension
+  methods.
+- **Dapper & Vector Tests**:
+    - Standard in-memory databases (EF Core InMemory, SQLite) **do not support pgvector**.
+    - Mocking `IDbConnection` for Dapper (especially `Dapper.AOT`) is fragile because extension methods are difficult to
+      mock and often require casting to `DbConnection`.
+    - **Recommended Approach**: Use **Integration Tests** with a real PostgreSQL instance via **Testcontainers**. This
+      is the only reliable way to verify `pgvector` queries and Dapper.AOT compatibility.
 
-### Test Example (Mocking Adapter)
+#### Integration Test Example (Testcontainers & WebApplicationFactory)
+
+Integration tests use `TestWebApplicationFactory` (which inherits from `WebApplicationFactory`) to spin up the API and
+`Testcontainers` to provide a real PostgreSQL instance. `IntegrationTestBase` manages the lifecycle and provides access
+to the API client and mocks.
 
 ```csharp
-[Fact]
-public async Task EmbedAsync_ReturnsResponse_WhenApiReturnsOk()
+public class QuestionEndpointsTests : IntegrationTestBase
 {
-    var expectedResponse = new OllamaEmbedResponse(new[] { new float[] { 0.1f, 0.2f } });
-    var handlerMock = new Mock<HttpMessageHandler>();
-    handlerMock.Protected()
-        .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
-        .ReturnsAsync(new HttpResponseMessage { StatusCode = HttpStatusCode.OK, Content = JsonContent.Create(expectedResponse) });
+    [Fact]
+    public async Task Ask_ReturnsOk_AndSavesToDatabase()
+    {
+        // Arrange
+        var questionText = "What is Native AOT?";
+        var expectedEmbedding = new[] { new float[] { 0.1f, 0.2f, 0.3f } };
 
-    var httpClient = new HttpClient(handlerMock.Object) { BaseAddress = new Uri("http://localhost:11434") };
-    var adapter = new OllamaAdapter(httpClient);
-    var result = await adapter.EmbedAsync(new OllamaEmbedRequest("model", "input"));
+        OllamaAdapterMock
+            .Setup(a => a.EmbedAsync(It.IsAny<OllamaEmbedRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OllamaEmbedResponse(expectedEmbedding));
 
-    Assert.NotNull(result);
-    Assert.Single(result.Embeddings);
+        var request = new QuestionAskRequest(questionText);
+
+        // Act
+        var response = await Client.PostAsJsonAsync("/question/ask", request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains(questionText, content);
+    }
+}
+```
+
+Base class `IntegrationTestBase` handles the lifecycle of the PostgreSQL container and the test factory.
+
+```csharp
+public class IntegrationTestBase : IAsyncLifetime
+{
+    protected readonly PostgreSqlContainer PostgreSqlContainer = new PostgreSqlBuilder()
+        .WithImage("pgvector/pgvector:pg17")
+        .Build();
+
+    private TestWebApplicationFactory _factory = null!;
+
+    protected HttpClient Client { get; private set; } = null!;
+    protected Mock<IOllamaAdapter> OllamaAdapterMock => _factory.OllamaAdapterMock;
+
+    public virtual async Task InitializeAsync()
+    {
+        await PostgreSqlContainer.StartAsync();
+
+        _factory = new TestWebApplicationFactory
+        {
+            ConnectionString = PostgreSqlContainer.GetConnectionString()
+        };
+
+        Client = _factory.CreateClient();
+    }
+
+    public virtual async Task DisposeAsync()
+    {
+        if (_factory != null) await _factory.DisposeAsync();
+        await PostgreSqlContainer.DisposeAsync();
+    }
 }
 ```
 
