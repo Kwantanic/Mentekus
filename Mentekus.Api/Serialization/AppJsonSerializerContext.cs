@@ -7,6 +7,9 @@ using Pgvector;
 namespace Mentekus.Api.Serialization;
 
 [JsonSerializable(typeof(QuestionAskRequest))]
+[JsonSerializable(typeof(QuestionSimilarityRequest))]
+[JsonSerializable(typeof(QuestionSimilarityResponse))]
+[JsonSerializable(typeof(List<QuestionSimilarityResponse>))]
 [JsonSerializable(typeof(OllamaEmbedRequest))]
 [JsonSerializable(typeof(OllamaEmbedResponse))]
 [JsonSerializable(typeof(Question))]

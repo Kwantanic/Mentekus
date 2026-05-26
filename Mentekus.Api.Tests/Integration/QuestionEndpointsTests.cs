@@ -37,4 +37,47 @@ public class QuestionEndpointsTests : IntegrationTestBase
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
+
+    [Fact]
+    public async Task Similarity_ReturnsMostSimilarQuestions()
+    {
+        // Arrange
+        var question1 = "What is .NET?";
+        var embedding1 = new float[] { 1.0f, 0.0f, 0.0f };
+        var question2 = "What is Java?";
+        var embedding2 = new float[] { 0.0f, 1.0f, 0.0f };
+        var searchQuery = "Tell me about .NET";
+        var searchEmbedding = new float[] { 0.9f, 0.1f, 0.0f };
+
+        // 1. Setup mock for inserting questions
+        OllamaAdapterMock
+            .Setup(a => a.EmbedAsync(It.Is<OllamaEmbedRequest>(r => r.Input == question1), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OllamaEmbedResponse([embedding1]));
+        OllamaAdapterMock
+            .Setup(a => a.EmbedAsync(It.Is<OllamaEmbedRequest>(r => r.Input == question2), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OllamaEmbedResponse([embedding2]));
+
+        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question1));
+        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question2));
+
+        // 2. Setup mock for similarity search
+        OllamaAdapterMock
+            .Setup(a => a.EmbedAsync(It.Is<OllamaEmbedRequest>(r => r.Input == searchQuery), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OllamaEmbedResponse([searchEmbedding]));
+
+        var similarityRequest = new QuestionSimilarityRequest(searchQuery, 2);
+
+        // Act
+        var response = await Client.PostAsJsonAsync("/question/similarity", similarityRequest);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var results = await response.Content.ReadFromJsonAsync<List<QuestionSimilarityResponse>>(
+            Mentekus.Api.Serialization.AppJsonSerializerContext.Default.ListQuestionSimilarityResponse);
+
+        Assert.NotNull(results);
+        Assert.Equal(2, results.Count);
+        Assert.Equal(question1, results[0].Text); // Should be more similar to .NET question
+        Assert.True(results[0].Similarity > results[1].Similarity);
+    }
 }
