@@ -16,12 +16,11 @@ public interface IQuestionService
 
 public class QuestionService(
     IOllamaAdapter ollamaAdapter,
-    IConfiguration configuration,
     IDbConnection connection) : IQuestionService
 {
     public async Task<string> AskAsync(string question, CancellationToken cancellationToken = default)
     {
-        var embedding = await GetEmbeddingAsync(question, cancellationToken);
+        var embedding = await ollamaAdapter.EmbedAsync(question, cancellationToken);
 
         var questionEntity = new Entities.Question
         {
@@ -42,7 +41,7 @@ public class QuestionService(
     public async Task<List<QuestionSimilarityResponse>> GetSimilarQuestionsAsync(string text, int limit,
         CancellationToken cancellationToken = default)
     {
-        var embedding = await GetEmbeddingAsync(text, cancellationToken);
+        var embedding = await ollamaAdapter.EmbedAsync(text, cancellationToken);
 
         if (embedding == null) return [];
 
@@ -59,18 +58,5 @@ public class QuestionService(
         var result =
             await connection.QueryAsync<QuestionSimilarityResponse>(sql, new { Vector = vector, Limit = limit });
         return result.ToList();
-    }
-
-    private async Task<float[]?> GetEmbeddingAsync(string text, CancellationToken cancellationToken)
-    {
-        var model = configuration["Ollama:EmbeddingModel"] ?? "qwen3-embedding:0.6b";
-
-        var request = new OllamaEmbedRequest(
-            model,
-            text);
-
-        var result = await ollamaAdapter.EmbedAsync(request, cancellationToken);
-
-        return result?.Embeddings?.FirstOrDefault();
     }
 }

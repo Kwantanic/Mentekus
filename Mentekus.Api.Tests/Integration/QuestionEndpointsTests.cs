@@ -17,8 +17,8 @@ public class QuestionEndpointsTests : IntegrationTestBase
         var expectedEmbedding = new[] { new[] { 0.1f, 0.2f, 0.3f } };
 
         OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.IsAny<OllamaEmbedRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new OllamaEmbedResponse(expectedEmbedding));
+            .Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedEmbedding[0]);
 
         var request = new QuestionAskRequest(questionText);
 
@@ -32,10 +32,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Assert.Contains("Embedding length: 3", content);
 
         // Verify the mock was called
-        OllamaAdapterMock.Verify(a => a.EmbedAsync(
-                It.Is<OllamaEmbedRequest>(r => r.Input == questionText),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
+        OllamaAdapterMock.Verify(a => a.EmbedAsync(questionText, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -51,19 +48,19 @@ public class QuestionEndpointsTests : IntegrationTestBase
 
         // 1. Setup mock for inserting questions
         OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.Is<OllamaEmbedRequest>(r => r.Input == question1), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new OllamaEmbedResponse([embedding1]));
+            .Setup(a => a.EmbedAsync(question1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(embedding1);
         OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.Is<OllamaEmbedRequest>(r => r.Input == question2), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new OllamaEmbedResponse([embedding2]));
+            .Setup(a => a.EmbedAsync(question2, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(embedding2);
 
         await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question1));
         await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question2));
 
         // 2. Setup mock for similarity search
         OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.Is<OllamaEmbedRequest>(r => r.Input == searchQuery), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new OllamaEmbedResponse([searchEmbedding]));
+            .Setup(a => a.EmbedAsync(searchQuery, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(searchEmbedding);
 
         var similarityRequest = new QuestionSimilarityRequest(searchQuery, 2);
 

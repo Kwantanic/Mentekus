@@ -1,17 +1,21 @@
 using Mentekus.Api.Serialization;
+using Microsoft.Extensions.Configuration;
 
 namespace Mentekus.Api.Shared.Adapters;
 
 public interface IOllamaAdapter
 {
-    Task<OllamaEmbedResponse?> EmbedAsync(OllamaEmbedRequest request, CancellationToken cancellationToken = default);
+    Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default);
 }
 
-public class OllamaAdapter(HttpClient httpClient) : IOllamaAdapter
+public class OllamaAdapter(HttpClient httpClient, IConfiguration configuration) : IOllamaAdapter
 {
-    public async Task<OllamaEmbedResponse?> EmbedAsync(OllamaEmbedRequest request,
-        CancellationToken cancellationToken = default)
+    public async Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default)
     {
+        var model = configuration["Ollama:EmbeddingModel"] ?? "qwen3-embedding:0.6b";
+
+        var request = new OllamaEmbedRequest(model, text);
+
         using var response = await httpClient.PostAsJsonAsync(
             "api/embed",
             request,
@@ -20,9 +24,11 @@ public class OllamaAdapter(HttpClient httpClient) : IOllamaAdapter
 
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync(
+        var result = await response.Content.ReadFromJsonAsync(
             AppJsonSerializerContext.Default.OllamaEmbedResponse,
             cancellationToken);
+
+        return result?.Embeddings?.FirstOrDefault();
     }
 }
 
