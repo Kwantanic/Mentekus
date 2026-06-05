@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Injectio.Attributes;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Shared.Adapters;
@@ -7,15 +8,7 @@ using Pgvector;
 
 namespace Mentekus.Api.Features.Question;
 
-public interface IQuestionService
-{
-    Task<string> AskAsync(string question, string name, string email,
-        CancellationToken cancellationToken = default);
-
-    Task<List<QuestionSimilarityResponse>> GetSimilarQuestionsAsync(string text, int limit,
-        CancellationToken cancellationToken = default);
-}
-
+[RegisterScoped(ServiceType = typeof(IQuestionService))]
 public class QuestionService(
     IOllamaAdapter ollamaAdapter,
     IUserService userService,

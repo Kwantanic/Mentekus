@@ -16,7 +16,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddDatabase();
 builder.Services.AddAdapters();
-builder.Services.AddFeatures();
+builder.Services.AddMentekusApi();
 
 builder.Services.AddOpenApi();
 

@@ -1,11 +1,14 @@
 using System.Data;
 using Dapper;
+using Injectio.Attributes;
 
 namespace Mentekus.Api.Features.User;
 
+[RegisterScoped(ServiceType = typeof(IUserService))]
 public class UserService(IDbConnection connection) : IUserService
 {
-    public async Task<Guid?> ResolveOrCreateUserAsync(string? name, string? email, CancellationToken cancellationToken = default)
+    public async Task<Guid?> ResolveOrCreateUserAsync(string? name, string? email,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(email))
             return null;

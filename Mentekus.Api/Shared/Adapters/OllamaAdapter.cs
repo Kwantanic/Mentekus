@@ -1,13 +1,10 @@
+using Injectio.Attributes;
 using Mentekus.Api.Serialization;
 using Microsoft.Extensions.Options;
 
 namespace Mentekus.Api.Shared.Adapters;
 
-public interface IOllamaAdapter
-{
-    Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default);
-}
-
+[RegisterScoped(ServiceType = typeof(IOllamaAdapter))]
 public class OllamaAdapter(HttpClient httpClient, IOptions<OllamaOptions> options) : IOllamaAdapter
 {
     public async Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default)

@@ -12,17 +12,21 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <EmbeddedResource Include="Shared\Database\Migrations\*.sql"/>
+        <EmbeddedResource Include="Shared\Database\Migrations\*.sql" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Dapper" Version="2.1.35"/>
-        <PackageReference Include="Dapper.AOT" Version="1.0.52"/>
-        <PackageReference Include="dbup-postgresql" Version="5.0.40"/>
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0"/>
-        <PackageReference Include="Npgsql" Version="9.0.2"/>
-        <PackageReference Include="Pgvector" Version="0.3.0"/>
-        <PackageReference Include="Scalar.AspNetCore" Version="2.14.14"/>
+        <PackageReference Include="Dapper" Version="2.1.35" />
+        <PackageReference Include="Dapper.AOT" Version="1.0.52" />
+        <PackageReference Include="dbup-postgresql" Version="5.0.40" />
+        <PackageReference Include="Injectio" Version="6.1.0">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+        <PackageReference Include="Npgsql" Version="9.0.2" />
+        <PackageReference Include="Pgvector" Version="0.3.0" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.14.14" />
     </ItemGroup>
 
     <ItemGroup>
