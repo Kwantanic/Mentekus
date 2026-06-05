@@ -36,6 +36,7 @@
     restart: unless-stopped
 
   ollama:
+    image: mentekus-ollama:local
     build:
       context: ./ollama
       dockerfile: Dockerfile
