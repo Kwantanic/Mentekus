@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
+using Mentekus.Api.Features.User.Entities;
 using Mentekus.Api.Shared.Adapters;
 using Pgvector;
 
@@ -15,6 +16,7 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(Question))]
 [JsonSerializable(typeof(List<Question>))]
 [JsonSerializable(typeof(Vector))]
+[JsonSerializable(typeof(User))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     PropertyNameCaseInsensitive = true,

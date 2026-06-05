@@ -8,4 +8,5 @@ public class Question
     public string Text { get; set; } = string.Empty;
     public Vector? Embedding { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public Guid? AskedByUserId { get; set; }
 }

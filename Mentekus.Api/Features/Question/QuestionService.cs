@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Mentekus.Api.Features.Question.Requests;
+using Mentekus.Api.Features.User;
 using Mentekus.Api.Shared.Adapters;
 using Pgvector;
 
@@ -8,7 +9,8 @@ namespace Mentekus.Api.Features.Question;
 
 public interface IQuestionService
 {
-    Task<string> AskAsync(string question, CancellationToken cancellationToken = default);
+    Task<string> AskAsync(string question, string name, string email,
+        CancellationToken cancellationToken = default);
 
     Task<List<QuestionSimilarityResponse>> GetSimilarQuestionsAsync(string text, int limit,
         CancellationToken cancellationToken = default);
@@ -16,18 +18,26 @@ public interface IQuestionService
 
 public class QuestionService(
     IOllamaAdapter ollamaAdapter,
+    IUserService userService,
     IDbConnection connection) : IQuestionService
 {
-    public async Task<string> AskAsync(string question, CancellationToken cancellationToken = default)
+    public async Task<string> AskAsync(string question, string name, string email,
+        CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(email))
+            throw new ArgumentException("Name and email are required to ask a question.");
+
         var embedding = await ollamaAdapter.EmbedAsync(question, cancellationToken);
+
+        var userId = await userService.ResolveOrCreateUserAsync(name, email, cancellationToken);
 
         var questionEntity = new Entities.Question
         {
             Id = Guid.NewGuid(),
             Text = question,
             Embedding = embedding != null ? new Vector(embedding) : null,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            AskedByUserId = userId
         };
 
         await connection.ExecuteAsync(QuestionSql.InsertQuestion, questionEntity);

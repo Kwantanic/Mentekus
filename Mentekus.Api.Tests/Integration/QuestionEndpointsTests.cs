@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Mentekus.Api.Features.Question.Requests;
-using Mentekus.Api.Shared.Adapters;
+using Mentekus.Api.Serialization;
 using Moq;
 using Xunit;
 
@@ -20,7 +20,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
             .Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedEmbedding[0]);
 
-        var request = new QuestionAskRequest(questionText);
+        var request = new QuestionAskRequest(questionText, "Test User", "test@example.com");
 
         // Act
         var response = await Client.PostAsJsonAsync("/question/ask", request);
@@ -40,11 +40,11 @@ public class QuestionEndpointsTests : IntegrationTestBase
     {
         // Arrange
         var question1 = "What is .NET?";
-        var embedding1 = new float[] { 1.0f, 0.0f, 0.0f };
+        var embedding1 = new[] { 1.0f, 0.0f, 0.0f };
         var question2 = "What is Java?";
-        var embedding2 = new float[] { 0.0f, 1.0f, 0.0f };
+        var embedding2 = new[] { 0.0f, 1.0f, 0.0f };
         var searchQuery = "Tell me about .NET";
-        var searchEmbedding = new float[] { 0.9f, 0.1f, 0.0f };
+        var searchEmbedding = new[] { 0.9f, 0.1f, 0.0f };
 
         // 1. Setup mock for inserting questions
         OllamaAdapterMock
@@ -54,8 +54,8 @@ public class QuestionEndpointsTests : IntegrationTestBase
             .Setup(a => a.EmbedAsync(question2, It.IsAny<CancellationToken>()))
             .ReturnsAsync(embedding2);
 
-        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question1));
-        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question2));
+        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question1, "User One", "one@example.com"));
+        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question2, "User Two", "two@example.com"));
 
         // 2. Setup mock for similarity search
         OllamaAdapterMock
@@ -70,7 +70,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var results = await response.Content.ReadFromJsonAsync<List<QuestionSimilarityResponse>>(
-            Mentekus.Api.Serialization.AppJsonSerializerContext.Default.ListQuestionSimilarityResponse);
+            AppJsonSerializerContext.Default.ListQuestionSimilarityResponse);
 
         Assert.NotNull(results);
         Assert.Equal(2, results.Count);

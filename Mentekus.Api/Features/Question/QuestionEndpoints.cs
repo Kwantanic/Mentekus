@@ -14,8 +14,11 @@ public static class QuestionEndpoints
             CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.Question)) return Results.BadRequest("Question is required.");
+            if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Email))
+                return Results.BadRequest("Name and email are required.");
 
-            var answer = await questionService.AskAsync(request.Question, cancellationToken);
+            var answer =
+                await questionService.AskAsync(request.Question, request.Name!, request.Email!, cancellationToken);
 
             return Results.Ok(answer);
         });
@@ -28,7 +31,8 @@ public static class QuestionEndpoints
             if (string.IsNullOrWhiteSpace(request.Text)) return Results.BadRequest("Text is required.");
 
             var limit = request.Limit <= 0 ? 5 : request.Limit;
-            var similarQuestions = await questionService.GetSimilarQuestionsAsync(request.Text, limit, cancellationToken);
+            var similarQuestions =
+                await questionService.GetSimilarQuestionsAsync(request.Text, limit, cancellationToken);
 
             return Results.Ok(similarQuestions);
         });

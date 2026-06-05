@@ -8,7 +8,6 @@ public static class AdapterExtensions
     {
         services.AddOptions<OllamaOptions>()
             .BindConfiguration(OllamaOptions.SectionName)
-            .ValidateDataAnnotations()
             .ValidateOnStart();
 
         services.AddHttpClient<IOllamaAdapter, OllamaAdapter>((serviceProvider, httpClient) =>
