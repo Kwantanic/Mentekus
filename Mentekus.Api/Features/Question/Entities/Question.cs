@@ -2,11 +2,9 @@ using Pgvector;
 
 namespace Mentekus.Api.Features.Question.Entities;
 
-public class Question
-{
-    public Guid Id { get; set; }
-    public string Text { get; set; } = string.Empty;
-    public Vector? Embedding { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public Guid? AskedByUserId { get; set; }
-}
+public record Question(
+    Guid Id,
+    string Text,
+    Vector? Embedding,
+    DateTime CreatedAt,
+    Guid? AskedByUserId);

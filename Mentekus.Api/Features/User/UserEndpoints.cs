@@ -1,4 +1,5 @@
 using Mentekus.Api.Features.Expertise;
+using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Generated;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;

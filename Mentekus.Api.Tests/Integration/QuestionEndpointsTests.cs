@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Dapper;
 using Mentekus.Api.Features.Expertise;
+using Mentekus.Api.Features.Expertise.Entities;
+using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Features.User.Requests;
@@ -84,8 +86,8 @@ public class QuestionEndpointsTests : IntegrationTestBase
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var results = await response.Content.ReadFromJsonAsync<List<QuestionSimilarityResponse>>(
-            AppJsonSerializerContext.Default.ListQuestionSimilarityResponse);
+        var results = await response.Content.ReadFromJsonAsync<List<QuestionSimilarity>>(
+            AppJsonSerializerContext.Default.ListQuestionSimilarity);
 
         Assert.NotNull(results);
         Assert.Equal(2, results.Count);

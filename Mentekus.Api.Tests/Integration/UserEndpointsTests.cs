@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Mentekus.Api.Features.Expertise;
+using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Serialization;

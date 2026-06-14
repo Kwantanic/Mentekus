@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json.Serialization;
 using Mentekus.Api.Features.Expertise;
+using Mentekus.Api.Features.Expertise.Entities;
+using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Features.User.Requests;
@@ -11,8 +13,8 @@ namespace Mentekus.Api.Serialization;
 
 [JsonSerializable(typeof(QuestionAskRequest))]
 [JsonSerializable(typeof(QuestionSimilarityRequest))]
-[JsonSerializable(typeof(QuestionSimilarityResponse))]
-[JsonSerializable(typeof(List<QuestionSimilarityResponse>))]
+[JsonSerializable(typeof(QuestionSimilarity))]
+[JsonSerializable(typeof(List<QuestionSimilarity>))]
 [JsonSerializable(typeof(QuestionAnswerRequest))]
 [JsonSerializable(typeof(OllamaEmbedRequest))]
 [JsonSerializable(typeof(OllamaEmbedResponse))]

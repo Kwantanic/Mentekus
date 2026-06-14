@@ -1,3 +1,4 @@
+using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Generated;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -24,7 +25,7 @@ public static class QuestionEndpoints
         return TypedResults.Ok(answer);
     }
 
-    private static async Task<Ok<List<QuestionSimilarityResponse>>> HandleSimilarityAsync(
+    private static async Task<Ok<List<QuestionSimilarity>>> HandleSimilarityAsync(
         QuestionSimilarityRequest request,
         IQuestionService questionService, CancellationToken cancellationToken)
     {

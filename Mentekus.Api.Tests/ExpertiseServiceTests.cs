@@ -1,5 +1,6 @@
 using Dapper;
 using Mentekus.Api.Features.Expertise;
+using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Shared.Adapters;
 using Microsoft.Extensions.DependencyInjection;

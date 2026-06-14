@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using Mentekus.Api.Features.Expertise;
+using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
@@ -27,14 +28,12 @@ public class QuestionService(
         if (embedding == null)
             throw new EmbeddingFailedException("Failed to generate embedding for the question.");
 
-        var questionEntity = new Entities.Question
-        {
-            Id = Guid.NewGuid(),
-            Text = question,
-            Embedding = new Vector(embedding),
-            CreatedAt = DateTime.UtcNow,
-            AskedByUserId = userId
-        };
+        var questionEntity = new Entities.Question(
+            Guid.NewGuid(),
+            question,
+            new Vector(embedding),
+            DateTime.UtcNow,
+            userId);
 
         await connection.ExecuteAsync(QuestionSql.InsertQuestion, questionEntity);
 
@@ -44,7 +43,7 @@ public class QuestionService(
         return $"Question saved (ID: {questionEntity.Id}). Embedding length: {embedding?.Length ?? 0}.";
     }
 
-    public async Task<List<QuestionSimilarityResponse>> GetSimilarQuestionsAsync(string text, int limit,
+    public async Task<List<QuestionSimilarity>> GetSimilarQuestionsAsync(string text, int limit,
         CancellationToken cancellationToken = default)
     {
         var embedding = await ollamaAdapter.EmbedAsync(text, cancellationToken);
@@ -54,7 +53,7 @@ public class QuestionService(
         var vector = new Vector(embedding);
 
         var result =
-            await connection.QueryAsync<QuestionSimilarityResponse>(QuestionSql.FindSimilarQuestions,
+            await connection.QueryAsync<QuestionSimilarity>(QuestionSql.FindSimilarQuestions,
                 new { Vector = vector, Limit = limit });
         return result.ToList();
     }

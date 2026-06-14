@@ -66,8 +66,8 @@ The API project uses Native AOT:
     - `I*Service.cs` + `*Service.cs` (implementation)
     - `*Endpoints.cs` (static)
     - `*Sql.cs` (static class of raw string constants)
-    - `Entities/` (Dapper-mapped POCOs)
-    - `Requests/` (input DTOs + any response DTOs used by the feature)
+    - `Entities/` (Dapper-mapped POCOs and DTOs returned from Queries)
+    - `Requests/` (input DTOs)
   - `Shared/`
     - `Adapters/` (external service clients, e.g. Ollama)
     - `Database/` (DbUp migrations + connection setup + VectorTypeHandler)
@@ -130,17 +130,15 @@ All new business logic goes under a feature folder following the above layout.
       [property: JsonRequired] string Question,
       [property: JsonRequired] string Email);
   ```
-- Response DTOs are usually `sealed record` (or simple classes when returned from Dapper `QueryAsync<T>`).
-- `QuestionSimilarityResponse` is currently co-located in `Requests/` for convenience.
-- **Entities** are mutable `class` types (not records) with public setters and sensible defaults. They exist only for Dapper materialization:
+- Response DTOs are usually `sealed record` if not used for Dapper mapping. If a response DTO is populated directly from a Dapper query, it **must** be a `record` in the `Entities/` folder.
+- **Entities** (and Dapper-mapped response types) are `record` types with primary constructors. They exist for Dapper materialization (Native AOT requirement):
   ```csharp
-  public class Question
-  {
-      public Guid Id { get; set; }
-      public string Text { get; set; } = string.Empty;
-      public Vector? Embedding { get; set; }
-      // ...
-  }
+  public record Question(
+      Guid Id,
+      string Text,
+      Vector? Embedding,
+      DateTime CreatedAt,
+      Guid? AskedByUserId);
   ```
 
 ### SQL Queries
@@ -342,7 +340,9 @@ Always prefer `AppJsonSerializerContext.Default.XXX` when reading responses in t
 - Trying to unit-test Dapper + pgvector with in-memory fakes (it won't work; use the Testcontainers integration base).
 - Omitting `using Mentekus.Api.Generated;` in a new `*Endpoints.cs` file.
 - Registering services with `AddScoped` instead of the `[RegisterScoped]` attribute.
-- Using records for entities that Dapper must hydrate (use mutable classes with setters).
+- Using classes for types that Dapper must hydrate (use records with primary constructors).
+- Placing Dapper-mapped types anywhere other than the `Entities/` folder.
+- Private records/classes used in Dapper queries (must be `internal` or `public` for Dapper.AOT).
 - Not calling `MigrateDatabase()` or having non-idempotent migration scripts.
 - Hard-coding model names instead of reading from `IOptions<OllamaOptions>`.
 - Forgetting `CancellationToken` propagation on service/adapter boundaries.
@@ -358,7 +358,7 @@ Always prefer `AppJsonSerializerContext.Default.XXX` when reading responses in t
    - Implement using `IDbConnection` + `NewFeatureSql.XXX` constants.
 4. Create `NewFeatureSql.cs` with properly formatted raw string constants.
 5. Create `Requests/NewFeatureXxxRequest.cs` (sealed records + `[property: JsonRequired]` where needed).
-6. (If needed) Add response record (can live in Requests for now).
+6. Create `Entities/` folder and add Dapper-mapped entities or response classes (records with primary constructors).
 7. Create `NewFeatureEndpoints.cs`:
    - `using Mentekus.Api.Generated;`
    - `[EndpointGroup] public static class ...`

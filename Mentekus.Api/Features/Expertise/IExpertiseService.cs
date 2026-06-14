@@ -1,3 +1,5 @@
+using Mentekus.Api.Features.Expertise.Entities;
+
 namespace Mentekus.Api.Features.Expertise;
 
 public interface IExpertiseService
@@ -15,14 +17,6 @@ public interface IExpertiseService
     Task<List<ExpertiseRouteMatch>> RouteExpertsAsync(string query, int limit, CancellationToken cancellationToken = default);
 }
 
-public sealed record UserExpertiseProfile(
-    Guid UserId,
-    string Name,
-    string Email,
-    string? ExpertiseSummary,
-    string[] TopTopics,
-    DateTime? LastUpdated);
-
 public sealed record ExpertiseDocumentIngestRequest(
     [property: System.Text.Json.Serialization.JsonRequired] string Text,
     [property: System.Text.Json.Serialization.JsonRequired] string Email);
@@ -30,12 +24,3 @@ public sealed record ExpertiseDocumentIngestRequest(
 public sealed record ExpertiseRouteRequest(
     [property: System.Text.Json.Serialization.JsonRequired] string Query,
     int Limit = 10);
-
-public sealed record ExpertiseRouteMatch(
-    Guid UserId,
-    string Name,
-    string Email,
-    double Score,
-    double VecSim,
-    string[] MatchedTopics,
-    double Confidence);

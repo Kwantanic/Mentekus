@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Dapper;
+using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Mentekus.Api.Shared.Adapters;
 using Microsoft.Extensions.Logging;
@@ -188,9 +189,6 @@ public class ExpertiseService(
         return dot / (qNorm * uNorm);
     }
 
-    // Internal row for routing candidates (Dapper, not for JSON)
-    private sealed record UserRoutingRow(Guid Id, string Name, string Email, Pgvector.Vector? ExpertiseEmbedding);
-
     private async Task UpdateVectorInternalAsync(Guid userId, float[] embedding, string sourceType, float? alphaOverride, CancellationToken cancellationToken)
     {
         int dim = ExpertiseSql.EmbeddingDimension;
@@ -358,12 +356,4 @@ public class ExpertiseService(
             return [];
         }
     }
-
-    // Internal row types for Dapper projections (no AOT serializer needed).
-    // Only selected columns are mapped (unused fields removed per review for cleanliness; see cleaned SQL in ExpertiseSql).
-    private sealed record UserEmbeddingRow(Vector? ExpertiseEmbedding, DateTime? LastExpertiseUpdate);
-
-    private sealed record UserExpertiseRow(Guid UserId, string Name, string Email, string? ExpertiseSummary, DateTime? LastExpertiseUpdate);
-
-    private sealed record TopicStrengthRow(string Name);
 }
