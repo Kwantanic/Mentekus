@@ -13,15 +13,17 @@ public class QuestionService(
     IUserService userService,
     IDbConnection connection) : IQuestionService
 {
-    public async Task<string> AskAsync(string question, string name, string email,
+    public async Task<string> AskAsync(string question, string email,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(email))
-            throw new ArgumentException("Name and email are required to ask a question.");
+        if (string.IsNullOrWhiteSpace(email))
+            throw new ArgumentException("Email is required to ask a question.");
+
+        var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
+        if (userId == null)
+            throw new InvalidOperationException($"User with email {email} not found.");
 
         var embedding = await ollamaAdapter.EmbedAsync(question, cancellationToken);
-
-        var userId = await userService.ResolveOrCreateUserAsync(name, email, cancellationToken);
 
         var questionEntity = new Entities.Question
         {

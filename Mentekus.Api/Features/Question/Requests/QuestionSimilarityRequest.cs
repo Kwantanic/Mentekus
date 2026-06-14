@@ -6,4 +6,4 @@ public sealed record QuestionSimilarityResponse(
     string Text,
     double Similarity,
     Guid AskedByUserId,
-    string AskedByUserName);
+    string AskedByEmail);

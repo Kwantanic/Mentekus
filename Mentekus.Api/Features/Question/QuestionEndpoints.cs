@@ -20,12 +20,18 @@ public static class QuestionEndpoints
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Question)) return TypedResults.BadRequest("Question is required.");
-        if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Email))
-            return TypedResults.BadRequest("Name and email are required.");
+        if (string.IsNullOrWhiteSpace(request.Email))
+            return TypedResults.BadRequest("Email is required.");
 
-        var answer = await questionService.AskAsync(request.Question, request.Name!, request.Email!, cancellationToken);
-
-        return TypedResults.Ok(answer);
+        try
+        {
+            var answer = await questionService.AskAsync(request.Question, request.Email, cancellationToken);
+            return TypedResults.Ok(answer);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return TypedResults.BadRequest(ex.Message);
+        }
     }
 
     private static async Task<Results<Ok<List<QuestionSimilarityResponse>>, BadRequest<string>>> HandleSimilarityAsync(

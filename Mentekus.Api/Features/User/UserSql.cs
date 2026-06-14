@@ -5,7 +5,7 @@ public static class UserSql
     public const string GetUserIdByEmail = """
         SELECT Id 
         FROM Users 
-        WHERE Email = @Email
+        WHERE LOWER(Email) = LOWER(@Email)
         """;
 
     public const string InsertUser = """

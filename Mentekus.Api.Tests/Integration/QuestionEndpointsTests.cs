@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Serialization;
+using Mentekus.Api.Features.User.Requests;
 using Moq;
 using Xunit;
 
@@ -12,7 +13,11 @@ public class QuestionEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Ask_ReturnsOk_AndSavesToDatabase()
     {
-        // Arrange
+        // 1. Add user
+        var userRequest = new UserAddRequest("Test User", "test@example.com");
+        await Client.PostAsJsonAsync("/user/add", userRequest);
+
+        // 2. Ask question
         var questionText = "What is Native AOT?";
         var expectedEmbedding = new[] { new[] { 0.1f, 0.2f, 0.3f } };
 
@@ -20,7 +25,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
             .Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedEmbedding[0]);
 
-        var request = new QuestionAskRequest(questionText, "Test User", "test@example.com");
+        var request = new QuestionAskRequest(questionText, "test@example.com");
 
         // Act
         var response = await Client.PostAsJsonAsync("/question/ask", request);
@@ -46,6 +51,10 @@ public class QuestionEndpointsTests : IntegrationTestBase
         var searchQuery = "Tell me about .NET";
         var searchEmbedding = new[] { 0.9f, 0.1f, 0.0f };
 
+        // 0. Add users
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("User One", "one@example.com"));
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("User Two", "two@example.com"));
+
         // 1. Setup mock for inserting questions
         OllamaAdapterMock
             .Setup(a => a.EmbedAsync(question1, It.IsAny<CancellationToken>()))
@@ -54,8 +63,8 @@ public class QuestionEndpointsTests : IntegrationTestBase
             .Setup(a => a.EmbedAsync(question2, It.IsAny<CancellationToken>()))
             .ReturnsAsync(embedding2);
 
-        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question1, "User One", "one@example.com"));
-        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question2, "User Two", "two@example.com"));
+        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question1, "one@example.com"));
+        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question2, "two@example.com"));
 
         // 2. Setup mock for similarity search
         OllamaAdapterMock
@@ -75,10 +84,45 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Assert.NotNull(results);
         Assert.Equal(2, results.Count);
         Assert.Equal(question1, results[0].Text); // Should be more similar to .NET question
-        Assert.Equal("User One", results[0].AskedByUserName);
+        Assert.Equal("one@example.com", results[0].AskedByEmail);
         Assert.NotEqual(Guid.Empty, results[0].AskedByUserId);
-        Assert.Equal("User Two", results[1].AskedByUserName);
+        Assert.Equal("two@example.com", results[1].AskedByEmail);
         Assert.NotEqual(Guid.Empty, results[1].AskedByUserId);
         Assert.True(results[0].Similarity > results[1].Similarity);
+    }
+    [Fact]
+    public async Task Ask_ReturnsOk_CaseInsensitiveEmail()
+    {
+        // 1. Add user with mixed case
+        var userRequest = new UserAddRequest("Mixed User", "Mixed@Example.Com");
+        await Client.PostAsJsonAsync("/user/add", userRequest);
+
+        // 2. Ask question with different case
+        var questionText = "Case sensitivity test";
+        OllamaAdapterMock
+            .Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new float[3]);
+
+        var request = new QuestionAskRequest(questionText, "mixed@example.com");
+
+        // Act
+        var response = await Client.PostAsJsonAsync("/question/ask", request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+    [Fact]
+    public async Task Ask_UserNotFound_ReturnsBadRequest()
+    {
+        // Arrange
+        var request = new QuestionAskRequest("Some question", "nonexistent@example.com");
+
+        // Act
+        var response = await Client.PostAsJsonAsync("/question/ask", request);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("not found", content);
     }
 }
