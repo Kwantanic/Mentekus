@@ -1,6 +1,6 @@
 using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Generated;
-using Mentekus.Api.Shared.ErrorHandling;
+using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Mentekus.Api.Features.User;

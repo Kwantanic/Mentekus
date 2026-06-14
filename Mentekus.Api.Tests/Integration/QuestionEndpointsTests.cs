@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using Mentekus.Api.Features.Question.Requests;
-using Mentekus.Api.Serialization;
 using Mentekus.Api.Features.User.Requests;
+using Mentekus.Api.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Xunit;
@@ -91,6 +91,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Assert.NotEqual(Guid.Empty, results[1].AskedByUserId);
         Assert.True(results[0].Similarity > results[1].Similarity);
     }
+
     [Fact]
     public async Task Ask_ReturnsOk_CaseInsensitiveEmail()
     {
@@ -112,8 +113,9 @@ public class QuestionEndpointsTests : IntegrationTestBase
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
     [Fact]
-    public async Task Ask_UserNotFound_ReturnsBadRequest()
+    public async Task Ask_UserNotFound_ReturnsNotFound()
     {
         // Arrange
         var request = new QuestionAskRequest("Some question", "nonexistent@example.com");
@@ -122,8 +124,9 @@ public class QuestionEndpointsTests : IntegrationTestBase
         var response = await Client.PostAsJsonAsync("/question/ask", request);
 
         // Assert
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var problem =
+            await response.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
         Assert.NotNull(problem);
         Assert.Contains("not found", problem.Detail);
     }

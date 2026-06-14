@@ -1,27 +1,14 @@
+using System.Data;
 using System.Reflection;
+using Dapper;
 using DbUp;
 using Npgsql;
-using System.Data;
-using Dapper;
 using Pgvector;
 
 namespace Mentekus.Api.Shared.Database;
 
 public static class DatabaseExtensions
 {
-    public sealed class VectorTypeHandler : SqlMapper.TypeHandler<Vector>
-    {
-        public override void SetValue(IDbDataParameter parameter, Vector? value)
-        {
-            parameter.Value = value;
-        }
-
-        public override Vector Parse(object value)
-        {
-            return (Vector)value;
-        }
-    }
-
     public static IServiceCollection AddDatabase(this IServiceCollection services)
     {
         SqlMapper.AddTypeHandler(new VectorTypeHandler());
@@ -63,9 +50,23 @@ public static class DatabaseExtensions
         if (!result.Successful)
         {
             var logger = scope.ServiceProvider.GetRequiredService<ILogger<IHost>>();
-            logger.LogError(result.Error, "Database migration failed.");
+            logger.LogError(result.Error, "Database migration failed: {Message}", result.Error?.Message);
+            throw new Exception("Database migration failed.", result.Error);
         }
 
         return host;
+    }
+
+    public sealed class VectorTypeHandler : SqlMapper.TypeHandler<Vector>
+    {
+        public override void SetValue(IDbDataParameter parameter, Vector? value)
+        {
+            parameter.Value = value;
+        }
+
+        public override Vector Parse(object value)
+        {
+            return (Vector)value;
+        }
     }
 }

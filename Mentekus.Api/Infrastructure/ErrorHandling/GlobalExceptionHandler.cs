@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Mentekus.Api.Shared.ErrorHandling;
+using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
@@ -26,6 +26,7 @@ public class GlobalExceptionHandler(
             ArgumentException => StatusCodes.Status400BadRequest,
             UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
             NotFoundException => StatusCodes.Status404NotFound,
+            EmbeddingFailedException => StatusCodes.Status503ServiceUnavailable,
             OperationCanceledException => 499, // Client Closed Request
             _ => StatusCodes.Status500InternalServerError
         };
@@ -78,6 +79,13 @@ public class GlobalExceptionHandler(
                 Title = "Not Found",
                 Detail = notFoundException.Message,
                 Type = "https://tools.ietf.org/html/rfc7231#section-6.5.4"
+            },
+            EmbeddingFailedException embeddingFailedException => new ProblemDetails
+            {
+                Status = statusCode,
+                Title = "Service Unavailable",
+                Detail = embeddingFailedException.Message,
+                Type = "https://tools.ietf.org/html/rfc7231#section-6.6.4"
             },
             OperationCanceledException => new ProblemDetails
             {

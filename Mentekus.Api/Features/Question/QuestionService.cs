@@ -2,8 +2,8 @@ using System.Data;
 using Dapper;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
+using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Mentekus.Api.Shared.Adapters;
-using Mentekus.Api.Shared.ErrorHandling;
 using Pgvector;
 
 namespace Mentekus.Api.Features.Question;
@@ -19,15 +19,17 @@ public class QuestionService(
     {
         var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
         if (userId == null)
-            throw new ValidationException("Email", $"User with email {email} not found.");
+            throw new NotFoundException($"User with email {email} not found.");
 
         var embedding = await ollamaAdapter.EmbedAsync(question, cancellationToken);
+        if (embedding == null)
+            throw new EmbeddingFailedException("Failed to generate embedding for the question.");
 
         var questionEntity = new Entities.Question
         {
             Id = Guid.NewGuid(),
             Text = question,
-            Embedding = embedding != null ? new Vector(embedding) : null,
+            Embedding = new Vector(embedding),
             CreatedAt = DateTime.UtcNow,
             AskedByUserId = userId
         };

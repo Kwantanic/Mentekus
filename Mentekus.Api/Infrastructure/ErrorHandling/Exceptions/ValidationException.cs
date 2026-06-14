@@ -1,4 +1,4 @@
-namespace Mentekus.Api.Shared.ErrorHandling;
+namespace Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 
 public class ValidationException(string message, IDictionary<string, string[]>? errors = null) : Exception(message)
 {

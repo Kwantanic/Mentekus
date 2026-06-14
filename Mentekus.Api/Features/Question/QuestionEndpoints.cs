@@ -1,6 +1,5 @@
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Generated;
-using Mentekus.Api.Shared.ErrorHandling;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Mentekus.Api.Features.Question;
@@ -28,7 +27,7 @@ public static class QuestionEndpoints
         QuestionSimilarityRequest request,
         IQuestionService questionService, CancellationToken cancellationToken)
     {
-        var limit = request.Limit <= 0 ? 5 : request.Limit;
+        var limit = Math.Clamp(request.Limit <= 0 ? 5 : request.Limit, 1, 50);
         var similarQuestions = await questionService.GetSimilarQuestionsAsync(request.Text, limit, cancellationToken);
 
         return TypedResults.Ok(similarQuestions);
