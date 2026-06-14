@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using Mentekus.Api.Features.User.Requests;
+using Mentekus.Api.Serialization;
+using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
 namespace Mentekus.Api.Tests.Integration;
@@ -38,7 +40,9 @@ public class UserEndpointsTests : IntegrationTestBase
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var content = await response.Content.ReadAsStringAsync();
-        Assert.Contains("already exists", content);
+        var problem = await response.Content.ReadFromJsonAsync<ValidationProblemDetails>(AppJsonSerializerContext.Default.ValidationProblemDetails);
+        Assert.NotNull(problem);
+        Assert.Contains("already exists", problem.Detail);
+        Assert.True(problem.Errors.ContainsKey("Email"));
     }
 }

@@ -1,5 +1,6 @@
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Generated;
+using Mentekus.Api.Shared.ErrorHandling;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Mentekus.Api.Features.Question;
@@ -15,30 +16,23 @@ public static class QuestionEndpoints
         group.MapPost("similarity", HandleSimilarityAsync);
     }
 
-    private static async Task<Results<Ok<string>, BadRequest<string>>> HandleAskAsync(QuestionAskRequest request,
+    private static async Task<Ok<string>> HandleAskAsync(QuestionAskRequest request,
         IQuestionService questionService,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Question)) return TypedResults.BadRequest("Question is required.");
+        if (string.IsNullOrWhiteSpace(request.Question)) throw new ValidationException(nameof(request.Question), "Question is required.");
         if (string.IsNullOrWhiteSpace(request.Email))
-            return TypedResults.BadRequest("Email is required.");
+            throw new ValidationException(nameof(request.Email), "Email is required.");
 
-        try
-        {
-            var answer = await questionService.AskAsync(request.Question, request.Email, cancellationToken);
-            return TypedResults.Ok(answer);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return TypedResults.BadRequest(ex.Message);
-        }
+        var answer = await questionService.AskAsync(request.Question, request.Email, cancellationToken);
+        return TypedResults.Ok(answer);
     }
 
-    private static async Task<Results<Ok<List<QuestionSimilarityResponse>>, BadRequest<string>>> HandleSimilarityAsync(
+    private static async Task<Ok<List<QuestionSimilarityResponse>>> HandleSimilarityAsync(
         QuestionSimilarityRequest request,
         IQuestionService questionService, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Text)) return TypedResults.BadRequest("Text is required.");
+        if (string.IsNullOrWhiteSpace(request.Text)) throw new ValidationException(nameof(request.Text), "Text is required.");
 
         var limit = request.Limit <= 0 ? 5 : request.Limit;
         var similarQuestions = await questionService.GetSimilarQuestionsAsync(request.Text, limit, cancellationToken);

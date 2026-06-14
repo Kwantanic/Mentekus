@@ -3,6 +3,7 @@ using Dapper;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Shared.Adapters;
+using Mentekus.Api.Shared.ErrorHandling;
 using Pgvector;
 
 namespace Mentekus.Api.Features.Question;
@@ -21,7 +22,7 @@ public class QuestionService(
 
         var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
         if (userId == null)
-            throw new InvalidOperationException($"User with email {email} not found.");
+            throw new ValidationException("Email", $"User with email {email} not found.");
 
         var embedding = await ollamaAdapter.EmbedAsync(question, cancellationToken);
 

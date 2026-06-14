@@ -1,5 +1,6 @@
 using Dapper;
 using Mentekus.Api.Generated;
+using Mentekus.Api.Infrastructure.ErrorHandling;
 using Mentekus.Api.Serialization;
 using Mentekus.Api.Shared.Adapters;
 using Mentekus.Api.Shared.Database;
@@ -16,6 +17,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddDatabase();
 builder.Services.AddAdapters();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
 builder.Services.AddMentekusApi();
 
 builder.Services.AddOpenApi();
@@ -23,6 +26,8 @@ builder.Services.AddOpenApi();
 var app = builder.Build();
 
 app.MigrateDatabase();
+
+app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
 {

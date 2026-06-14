@@ -38,10 +38,16 @@ The project is configured for **Native AOT** (`<PublishAot>true</PublishAot>`).
 
 ### Running Tests
 
-Tests are located in `Mentekus.Api.Tests`. Use the standard .NET CLI to run them:
+Tests are located in `Mentekus.Api.Tests`. To run them, use the `run_test` tool with the project file:
 
 ```bash
-dotnet test
+run_test Mentekus.Api.Tests.csproj
+```
+
+Alternatively, you can run all tests in the solution:
+
+```bash
+run_test fullSolution
 ```
 
 ### Adding New Tests

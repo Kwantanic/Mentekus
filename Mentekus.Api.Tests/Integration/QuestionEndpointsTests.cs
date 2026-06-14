@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Serialization;
 using Mentekus.Api.Features.User.Requests;
+using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Xunit;
 
@@ -122,7 +123,8 @@ public class QuestionEndpointsTests : IntegrationTestBase
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var content = await response.Content.ReadAsStringAsync();
-        Assert.Contains("not found", content);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
+        Assert.NotNull(problem);
+        Assert.Contains("not found", problem.Detail);
     }
 }

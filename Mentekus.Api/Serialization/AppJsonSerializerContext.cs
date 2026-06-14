@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json.Serialization;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
@@ -20,6 +21,8 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(User))]
 [JsonSerializable(typeof(UserAddRequest))]
 [JsonSerializable(typeof(UserAddResponse))]
+[JsonSerializable(typeof(ProblemDetails))]
+[JsonSerializable(typeof(ValidationProblemDetails))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     PropertyNameCaseInsensitive = true,
