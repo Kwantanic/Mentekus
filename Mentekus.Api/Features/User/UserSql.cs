@@ -13,12 +13,6 @@ public static class UserSql
         VALUES (@Id, @Name, @Email)
         """;
 
-    public const string GetUserByEmail = """
-        SELECT Id, Name, Email, ProfileVisible, AllowRouting, ExpertiseEmbedding, ExpertiseSummary, LastExpertiseUpdate, CreatedAt, ExternalId
-        FROM Users 
-        WHERE LOWER(Email) = LOWER(@Email)
-        """;
-
     public const string UpdateUserPreferences = """
         UPDATE Users 
         SET 
