@@ -148,6 +148,7 @@ Due to AOT, reflection-based serialization is discouraged.
 - Always use `AppJsonSerializerContext.Default` when configuring JSON options or using `HttpClient` JSON extensions.
 - When adding new DTOs or Entities that will be serialized, add them to `AppJsonSerializerContext` using
   `[JsonSerializable]`.
+- **JSON Required Properties**: Use `[property: JsonRequired]` on request DTO properties that are mandatory. This allows the JSON deserializer to validate the request and throw a `JsonException` if properties are missing, avoiding the need for manual null or whitespace guards in endpoint handlers.
 - Types like `Pgvector.Vector` must also be registered if they are serialized.
 
 ### Database

@@ -20,10 +20,6 @@ public static class QuestionEndpoints
         IQuestionService questionService,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Question)) throw new ValidationException(nameof(request.Question), "Question is required.");
-        if (string.IsNullOrWhiteSpace(request.Email))
-            throw new ValidationException(nameof(request.Email), "Email is required.");
-
         var answer = await questionService.AskAsync(request.Question, request.Email, cancellationToken);
         return TypedResults.Ok(answer);
     }
@@ -32,8 +28,6 @@ public static class QuestionEndpoints
         QuestionSimilarityRequest request,
         IQuestionService questionService, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Text)) throw new ValidationException(nameof(request.Text), "Text is required.");
-
         var limit = request.Limit <= 0 ? 5 : request.Limit;
         var similarQuestions = await questionService.GetSimilarQuestionsAsync(request.Text, limit, cancellationToken);
 

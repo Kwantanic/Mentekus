@@ -20,9 +20,6 @@ public static class UserEndpoints
         IUserService userService,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.Name)) throw new ValidationException(nameof(request.Name), "Name is required.");
-        if (string.IsNullOrWhiteSpace(request.Email)) throw new ValidationException(nameof(request.Email), "Email is required.");
-
         var existingUserId = await userService.GetUserIdByEmailAsync(request.Email, cancellationToken);
         if (existingUserId != null)
         {

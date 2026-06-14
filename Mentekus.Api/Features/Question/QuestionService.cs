@@ -17,9 +17,6 @@ public class QuestionService(
     public async Task<string> AskAsync(string question, string email,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(email))
-            throw new ArgumentException("Email is required to ask a question.");
-
         var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
         if (userId == null)
             throw new ValidationException("Email", $"User with email {email} not found.");
