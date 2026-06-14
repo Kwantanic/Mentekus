@@ -255,33 +255,52 @@ public class QuestionEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task ExpertiseRoute_RanksWithScoreVecSimMatchedTopics_RespectsAllowRoutingFlag()
     {
-        // users
+        // users (4 routable + 1 filtered to test exclusion + overfetch for hybrid promotion)
         await Client.PostAsJsonAsync("/user/add", new UserAddRequest("R1 Expert", "r1@example.com"));
         await Client.PostAsJsonAsync("/user/add", new UserAddRequest("R2 Expert", "r2@example.com"));
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("R3 Expert", "r3@example.com"));
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("R4 Expert", "r4@example.com"));
         await Client.PostAsJsonAsync("/user/add", new UserAddRequest("NoRoute", "noroute@example.com"));
 
         // set one to not allow routing
         await Client.PostAsJsonAsync("/user/noroute@example.com/preferences", new UserPreferencesUpdateRequest(AllowRouting: false), AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
 
-        // seed embeddings via doc/ask for two users (use high alpha override? but default)
+        // seed distinct embeddings so pure-vec DB order (via <=> ) would be r2 (best), r1, r3, r4 (worst)
+        // but query topics will overlap r4 strongly -> topic bonus promotes r4 in hybrid re-rank (verifies overfetch + re-rank fix)
         var emb1 = new float[1024]; emb1[10] = 0.95f; emb1[20] = 0.8f;
-        var emb2 = new float[1024]; emb2[10] = 0.9f; emb2[30] = 0.7f;
+        var emb2 = new float[1024]; emb2[10] = 0.96f; emb2[30] = 0.7f;
+        var emb3 = new float[1024]; emb3[10] = 0.80f; emb3[40] = 0.6f;
+        var emb4 = new float[1024]; emb4[10] = 0.70f; emb4[50] = 0.5f;
         OllamaAdapterMock.Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns((string t, CancellationToken _) => Task.FromResult<float[]?>(t.Contains("r1") ? emb1 : emb2));
-        // make docs to trigger blend
+            .Returns((string t, CancellationToken _) =>
+            {
+                if (t.Contains("r1")) return Task.FromResult<float[]?>(emb1);
+                if (t.Contains("r2")) return Task.FromResult<float[]?>(emb2);
+                if (t.Contains("r3")) return Task.FromResult<float[]?>(emb3);
+                return Task.FromResult<float[]?>(emb4);
+            });
+        // generate returns topics that strongly match r4's seeded expertise (for promotion test)
+        OllamaAdapterMock.Setup(a => a.GenerateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("[\"r4-skill\", \"topicx\"]");
+
+        // make docs to trigger blend + topics
         await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("r1 text dotnet pgvector", "r1@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
         await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("r2 text dotnet", "r2@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
+        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("r3 text embeddings", "r3@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
+        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("r4 text r4-skill topicx", "r4@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
 
-        // route query similar to r1 more
-        var routeReq = new ExpertiseRouteRequest("dotnet pgvector expert", 5);
+        // route query (topics will boost r4 above pure-vec ordering)
+        var routeReq = new ExpertiseRouteRequest("r4-skill expert topicx", 3);
         var routeResp = await Client.PostAsJsonAsync("/expertise/route", routeReq, AppJsonSerializerContext.Default.ExpertiseRouteRequest);
         Assert.Equal(HttpStatusCode.OK, routeResp.StatusCode);
 
         var matches = await routeResp.Content.ReadFromJsonAsync<List<ExpertiseRouteMatch>>(AppJsonSerializerContext.Default.ListExpertiseRouteMatch);
         Assert.NotNull(matches);
-        Assert.True(matches.Count >= 1 && matches.Count <= 2); // noroute excluded
+        Assert.Equal(3, matches.Count); // noroute excluded; 3 routable after limit
         Assert.All(matches, m => Assert.DoesNotContain("noroute", m.Email));
-        Assert.True(matches[0].Score >= matches.LastOrDefault()?.Score);
+        // r4 promoted to top via hybrid (topic bonus overcomes lower pure VecSim)
+        Assert.Equal("r4@example.com", matches[0].Email);
+        Assert.True(matches[0].Score >= matches[1].Score);
         Assert.Contains(matches, m => m.MatchedTopics.Length > 0 || m.VecSim > 0); // has some scoring info
         Assert.All(matches, m => { Assert.True(m.VecSim >= 0 && m.VecSim <= 1.0001); Assert.True(m.Confidence >= 0); });
     }

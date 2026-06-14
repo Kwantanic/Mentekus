@@ -26,12 +26,4 @@ public static class UserSql
             AllowRouting = COALESCE(@AllowRouting, AllowRouting)
         WHERE Id = @UserId
         """;
-
-    public const string FindRoutableUsersWithEmbedding = """
-        SELECT Id, Name, Email, ExpertiseEmbedding, ProfileVisible, AllowRouting
-        FROM Users 
-        WHERE AllowRouting = true AND ExpertiseEmbedding IS NOT NULL
-        ORDER BY ExpertiseEmbedding <=> @Vector
-        LIMIT @Limit
-        """;
 }

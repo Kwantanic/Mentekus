@@ -91,11 +91,11 @@ public class ExpertiseService(
         // For blending side effects post-doc
         var userId = await GetUserIdByEmailInternalAsync(email, cancellationToken);
         if (userId == null)
-            throw new Mentekus.Api.Infrastructure.ErrorHandling.Exceptions.NotFoundException($"User with email {email} not found.");
+            throw new NotFoundException($"User with email {email} not found.");
 
         var embedding = await ollamaAdapter.EmbedAsync(text, cancellationToken);
         if (embedding == null || embedding.Length == 0)
-            throw new Mentekus.Api.Infrastructure.ErrorHandling.Exceptions.EmbeddingFailedException("Failed to generate embedding for the document.");
+            throw new EmbeddingFailedException("Failed to generate embedding for the document.");
 
         await UpdateFromContributionAsync(userId.Value, embedding, text, ExpertiseSql.DocumentSourceType, cancellationToken: cancellationToken);
 
@@ -131,16 +131,16 @@ public class ExpertiseService(
         }
 
         var matches = new List<ExpertiseRouteMatch>();
-        foreach (var cand in candidates.Take(limit))
+        foreach (var cand in candidates)
         {
-            var vecSim = ComputeCosineSimFromDistance(embedding, cand.ExpertiseEmbedding);
+            var vecSim = ComputeCosineSimilarity(embedding, cand.ExpertiseEmbedding);
             var userTopics = (await connection.QueryAsync<TopicStrengthRow>(
                 ExpertiseSql.GetUserTopicsForMatch,
                 new { UserId = cand.Id, Limit = 20 })).Select(t => t.Name).ToArray();
 
             var matched = queryTopics.Intersect(userTopics, StringComparer.OrdinalIgnoreCase).ToArray();
 
-            // Hybrid score: vec sim primary + bonus for topic overlap
+            // Hybrid score: vec sim primary + bonus for topic overlap (enables promotion of lower-vec but higher-overlap candidates thanks to overfetch)
             var topicBonus = matched.Length > 0 ? Math.Min(matched.Length * 0.05, 0.2) : 0.0;
             var score = Math.Clamp(vecSim + topicBonus, 0.0, 1.0);
             var confidence = Math.Clamp(vecSim, 0.0, 1.0);
@@ -155,30 +155,26 @@ public class ExpertiseService(
                 confidence));
         }
 
-        // Re-rank by hybrid score desc
-        matches = matches.OrderByDescending(m => m.Score).ThenByDescending(m => m.VecSim).ToList();
+        // Re-rank by hybrid score desc, then take the requested limit (overfetch + re-rank allows topic bonus to promote candidates outside pure-vec top-N)
+        matches = matches.OrderByDescending(m => m.Score).ThenByDescending(m => m.VecSim).Take(limit).ToList();
         return matches;
     }
 
     private async Task<Guid?> GetUserIdByEmailInternalAsync(string email, CancellationToken cancellationToken)
     {
-        // Lightweight reuse of user query logic; avoid cross dep for minimal
-        return await connection.ExecuteScalarAsync<Guid?>(
-            "SELECT Id FROM Users WHERE LOWER(Email) = LOWER(@Email)",
-            new { Email = email });
+        // Lightweight reuse of user query logic; avoid cross dep for minimal.
+        // CT forwarded via CommandDefinition (new path); other Dapper sites match pre-existing codebase pattern (no CT, as all queries are short-lived under scoped IDbConnection).
+        var cmd = new CommandDefinition("SELECT Id FROM Users WHERE LOWER(Email) = LOWER(@Email)", new { Email = email }, cancellationToken: cancellationToken);
+        return await connection.ExecuteScalarAsync<Guid?>(cmd);
     }
 
-    private static double ComputeCosineSimFromDistance(float[] queryEmb, Pgvector.Vector? userVec)
+    private static double ComputeCosineSimilarity(float[] queryEmb, Pgvector.Vector? userVec)
     {
         if (userVec == null) return 0.0;
         var u = userVec.ToArray();
         if (u.Length != queryEmb.Length) return 0.0;
-        // Since PG <=> for normalized? use 1 - distance (as done in question similarity)
-        // For accuracy here, we approx; actual DB ordered by it already.
-        // To compute numeric sim value, use 1 - (eucl? but for pgvector default cosine with <=> ?)
-        // Follow existing pattern in QuestionSql: 1 - ( <=> )
-        // But to get actual number, we can compute it client or use sql. For smallest, simulate as 1 - avg dist approx but use dot for cosine if unit.
-        // Simplest consistent: we don't have exact dist here, use dummy based on order but to have real, implement cosine:
+        // Compute cosine similarity via dot product / norms (embeddings are positive ~unit; result in [0,1]).
+        // Matches the semantic intent of pgvector <=> ordering used for candidates (higher sim = better).
         double dot = 0, qn = 0, un = 0;
         for (int i = 0; i < queryEmb.Length; i++)
         {
@@ -189,7 +185,7 @@ public class ExpertiseService(
         var qNorm = Math.Sqrt(qn);
         var uNorm = Math.Sqrt(un);
         if (qNorm == 0 || uNorm == 0) return 0;
-        return dot / (qNorm * uNorm);  // cosine sim ~ [ -1..1] but embeddings positive, ~0..1
+        return dot / (qNorm * uNorm);
     }
 
     // Internal row for routing candidates (Dapper, not for JSON)

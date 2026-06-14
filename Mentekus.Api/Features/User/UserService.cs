@@ -22,17 +22,10 @@ public class UserService(IDbConnection connection) : IUserService
         return id;
     }
 
-    public async Task<User.Entities.User?> GetUserByEmailAsync(string email, CancellationToken cancellationToken = default)
-    {
-        return await connection.QuerySingleOrDefaultAsync<User.Entities.User>(
-            UserSql.GetUserByEmail,
-            new { Email = email });
-    }
-
     public async Task UpdateUserPreferencesAsync(Guid userId, bool? profileVisible = null, bool? allowRouting = null, CancellationToken cancellationToken = default)
     {
-        await connection.ExecuteAsync(
-            UserSql.UpdateUserPreferences,
-            new { UserId = userId, ProfileVisible = profileVisible, AllowRouting = allowRouting });
+        // CT forwarded for new prefs path (via CommandDefinition); consistent with addressed new paths elsewhere.
+        var cmd = new CommandDefinition(UserSql.UpdateUserPreferences, new { UserId = userId, ProfileVisible = profileVisible, AllowRouting = allowRouting }, cancellationToken: cancellationToken);
+        await connection.ExecuteAsync(cmd);
     }
 }

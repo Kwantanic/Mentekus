@@ -45,11 +45,8 @@ public static class UserEndpoints
             throw new NotFoundException($"User with email {email} not found.");
 
         var profile = await expertiseService.GetUserExpertiseAsync(userId.Value, cancellationToken);
-        if (profile == null)
-            throw new NotFoundException($"Expertise profile for {email} not found.");
-
-        // Note: visibility/ self logic for full profile is handled at caller or tests use service directly; endpoint returns full always (per design tests)
-        return TypedResults.Ok(profile);
+        // profile cannot be null here: prior GetUserIdByEmailAsync succeeded so the user row exists (GetUserExpertiseAsync only nulls on missing user row)
+        return TypedResults.Ok(profile!);
     }
 
     private static async Task<Ok<string>> HandleUpdatePreferencesAsync(

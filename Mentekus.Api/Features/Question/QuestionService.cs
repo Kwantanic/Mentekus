@@ -61,7 +61,9 @@ public class QuestionService(
 
     public async Task<string> AnswerAsync(Guid questionId, string answer, string email, CancellationToken cancellationToken = default)
     {
-        var exists = await connection.ExecuteScalarAsync<bool>(QuestionSql.QuestionExists, new { Id = questionId });
+        // CT via CommandDefinition for new answer path (matches the addressed pattern in new Expertise internal; other Dapper calls follow pre-existing no-CT style in this file).
+        var existsCmd = new CommandDefinition(QuestionSql.QuestionExists, new { Id = questionId }, cancellationToken: cancellationToken);
+        var exists = await connection.ExecuteScalarAsync<bool>(existsCmd);
         if (!exists)
             throw new NotFoundException($"Question with ID {questionId} not found.");
 

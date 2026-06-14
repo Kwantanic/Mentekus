@@ -55,7 +55,20 @@ Content-Type: application/json
 }
 
 ###
+# Submit a question first (to obtain a real ID for the answer example below)
+# (In manual/Scalar use: copy the returned question ID into the answer request.)
+
+POST {{Mentekus.Api_HostAddress}}/question/ask
+Content-Type: application/json
+
+{
+  "question": "What is Native AOT?",
+  "email": "grace@example.com"
+}
+
+###
 # Submit answer to a question (contributes to answerer's expertise with Answer alpha; validates qid)
+# Use a real questionId from a prior /question/ask response (the zero-UUID here is illustrative only and would 404).
 # Expected: 200 "Answer recorded for question <id>. Expertise updated."
 
 POST {{Mentekus.Api_HostAddress}}/question/answer
