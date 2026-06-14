@@ -8,10 +8,11 @@ public static class QuestionSql
         """;
 
     public const string FindSimilarQuestions = """
-        SELECT Text, 1 - (Embedding <=> @Vector) AS Similarity
-        FROM Questions
-        WHERE Embedding IS NOT NULL
-        ORDER BY Embedding <=> @Vector
+        SELECT q.Text, 1 - (q.Embedding <=> @Vector) AS Similarity, q.AskedByUserId, u.Name AS AskedByUserName
+        FROM Questions q
+        JOIN Users u ON q.AskedByUserId = u.Id
+        WHERE q.Embedding IS NOT NULL
+        ORDER BY q.Embedding <=> @Vector
         LIMIT @Limit
         """;
 }

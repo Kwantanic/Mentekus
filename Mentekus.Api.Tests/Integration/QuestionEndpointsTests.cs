@@ -75,6 +75,10 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Assert.NotNull(results);
         Assert.Equal(2, results.Count);
         Assert.Equal(question1, results[0].Text); // Should be more similar to .NET question
+        Assert.Equal("User One", results[0].AskedByUserName);
+        Assert.NotEqual(Guid.Empty, results[0].AskedByUserId);
+        Assert.Equal("User Two", results[1].AskedByUserName);
+        Assert.NotEqual(Guid.Empty, results[1].AskedByUserId);
         Assert.True(results[0].Similarity > results[1].Similarity);
     }
 }
