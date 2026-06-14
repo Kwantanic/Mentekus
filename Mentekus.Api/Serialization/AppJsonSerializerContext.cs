@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json.Serialization;
-using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
-using Mentekus.Api.Features.User.Entities;
 using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Shared.Adapters;
 using Pgvector;
@@ -15,10 +13,7 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(List<QuestionSimilarityResponse>))]
 [JsonSerializable(typeof(OllamaEmbedRequest))]
 [JsonSerializable(typeof(OllamaEmbedResponse))]
-[JsonSerializable(typeof(Question))]
-[JsonSerializable(typeof(List<Question>))]
 [JsonSerializable(typeof(Vector))]
-[JsonSerializable(typeof(User))]
 [JsonSerializable(typeof(UserAddRequest))]
 [JsonSerializable(typeof(UserAddResponse))]
 [JsonSerializable(typeof(ProblemDetails))]

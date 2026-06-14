@@ -1,10 +1,38 @@
 @Mentekus.Api_HostAddress = http://localhost:8080
 
-POST http://localhost:8080/question/ask
+# Note: In Development the Scalar UI is at /scalar/v1 (or /openapi for raw spec)
+
+###
+# Add a user first (required for question endpoints)
+
+POST {{Mentekus.Api_HostAddress}}/user/add
 Content-Type: application/json
 
 {
-  "question": "What is Mentekus?"
+  "name": "Ada Lovelace",
+  "email": "ada@example.com"
+}
+
+###
+# Submit / store a question (embeds via Ollama and persists with pgvector)
+
+POST {{Mentekus.Api_HostAddress}}/question/ask
+Content-Type: application/json
+
+{
+  "question": "What is Native AOT?",
+  "email": "ada@example.com"
+}
+
+###
+# Semantic similarity search (returns similar previously asked questions)
+
+POST {{Mentekus.Api_HostAddress}}/question/similarity
+Content-Type: application/json
+
+{
+  "text": "Tell me about ahead-of-time compilation",
+  "limit": 5
 }
 
 ###
