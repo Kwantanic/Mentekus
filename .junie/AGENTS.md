@@ -2,70 +2,272 @@
 
 This document provides project-specific information for developers and AI agents working on the Mentekus project.
 
-## 1. Build & Configuration
+## Project Overview & Key Technologies
+
+Mentekus is a minimal .NET 10 Native AOT web API for semantic question handling.
+
+Core stack:
+- Native AOT (`PublishAot`) + `WebApplication.CreateSlimBuilder`
+- Minimal APIs + source-generated endpoint mapping
+- Dapper + Dapper.AOT + DbUp migrations
+- PostgreSQL + pgvector for similarity search
+- Ollama for embeddings (via typed HttpClient adapter)
+- Injectio for source-generated DI registration (`[RegisterScoped]`)
+- xUnit + Moq + Testcontainers for testing
+- System.Text.Json source generation for AOT-safe (de)serialization
+
+## Getting Started (Build, Run, Docker)
 
 ### Environment Requirements
-
-- **.NET 10 SDK**
-- **Docker & Docker Compose** (required for PostgreSQL with `pgvector` and Ollama)
+- .NET 10 SDK
+- Docker + Docker Compose (strongly recommended)
 
 ### Local Development Setup
 
-The easiest way to start the required infrastructure is via Docker Compose:
+Use Docker Compose (the project uses `compose.yaml`):
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-This starts:
+This brings up:
+- `postgres` (pgvector/pgvector:pg17 image) on port 5432 with vector extension pre-enabled via init script.
+- `ollama` (custom image) that auto-pulls the required models on first start (`qwen3-embedding:0.6b` and `qwen3:4b-instruct`).
 
-- **Postgres**: With `pgvector` extension enabled. Accessible on port `5432`.
-- **Ollama**: Pre-configured with models defined in `ollama/init-models.sh`.
+The API (port 8080) depends on both.
 
-### AOT Compilation
+To run the API directly (after infra is up):
 
-The project is configured for **Native AOT** (`<PublishAot>true</PublishAot>`).
+```bash
+dotnet run --project Mentekus.Api
+```
 
-- Use `WebApplication.CreateSlimBuilder(args)` for minimal footprint.
-- All types used in JSON serialization must be registered in `AppJsonSerializerContext`.
-- **Dapper.AOT** is used to ensure Dapper is AOT-compatible.
-    - The project file must include
-      `<InterceptorsPreviewNamespaces>$(InterceptorsPreviewNamespaces);Dapper.AOT</InterceptorsPreviewNamespaces>`.
-    - `[assembly: DapperAot]` must be present in the project (usually in `Program.cs`).
-    - Dapper.AOT uses C# Interceptors to replace reflection-based Dapper calls with AOT-friendly code at build time.
+In Development the Scalar UI is available at `/scalar/v1` (or raw OpenAPI at `/openapi`).
 
-## 2. Testing Information
+### AOT Compilation & Build Constraints
+
+The API project uses Native AOT:
+
+- `WebApplication.CreateSlimBuilder(args)` in [Program.cs](Mentekus.Api/Program.cs).
+- All JSON-serialized types **must** be registered in `AppJsonSerializerContext` (see below).
+- `[assembly: DapperAot]` is declared in Program.cs.
+- The csproj contains:
+  ```xml
+  <PublishAot>true</PublishAot>
+  <InterceptorsPreviewNamespaces>$(InterceptorsPreviewNamespaces);Dapper.AOT</InterceptorsPreviewNamespaces>
+  ```
+- Dapper.AOT replaces reflection-based calls with interceptors at build time.
+- The final Docker image uses the smaller `runtime-deps` base image (see multi-stage [Mentekus.Api/Dockerfile](Mentekus.Api/Dockerfile); the build stage installs `clang`, `gcc`, `zlib1g-dev`).
+
+## Repository Structure & Feature Organization
+
+- `Mentekus.Api/` — main application
+  - `Features/<FeatureName>/`
+    - `I*Service.cs` + `*Service.cs` (implementation)
+    - `*Endpoints.cs` (static)
+    - `*Sql.cs` (static class of raw string constants)
+    - `Entities/` (Dapper-mapped POCOs)
+    - `Requests/` (input DTOs + any response DTOs used by the feature)
+  - `Shared/`
+    - `Adapters/` (external service clients, e.g. Ollama)
+    - `Database/` (DbUp migrations + connection setup + VectorTypeHandler)
+    - `Endpoints/` (marker attribute source is generated here at build)
+  - `Infrastructure/ErrorHandling/` (GlobalExceptionHandler + custom exceptions)
+  - `Serialization/AppJsonSerializerContext.cs`
+  - `Program.cs` (slim builder + composition root)
+- `Mentekus.Api.SourceGenerators/` — incremental generator for `[EndpointGroup]` → `MapAllEndpoints()`
+- `Mentekus.Api.Tests/` — integration tests (primary) + some unit tests
+- `compose.yaml`, `postgres/init/`, `Ollama/`, root-level Dockerfiles
+
+All new business logic goes under a feature folder following the above layout.
+
+## Coding Conventions
+
+### Services & Dependency Injection
+- Services are registered with the `[RegisterScoped(ServiceType = typeof(IFooService))]` attribute (Injectio source generator). No manual `AddScoped` calls for features.
+- Implementations use **primary constructors** exclusively for DI:
+  ```csharp
+  [RegisterScoped(ServiceType = typeof(IQuestionService))]
+  public class QuestionService(
+      IOllamaAdapter ollamaAdapter,
+      IUserService userService,
+      IDbConnection connection) : IQuestionService
+  ```
+- Keep `Program.cs` clean by using extension methods (`AddDatabase()`, `AddAdapters()`, `AddMentekusApi()` generated by Injectio).
+- Always accept and forward `CancellationToken`.
+
+### Endpoints (Minimal APIs + Source Generator)
+- Endpoints live in static classes named `*Endpoints.cs`.
+- Decorate the class with `[EndpointGroup]` (the attribute is emitted by the source generator into `Mentekus.Api.Generated`).
+- The class must contain a public static `MapEndpoints(IEndpointRouteBuilder endpoints)` method.
+- You **must** add `using Mentekus.Api.Generated;` and the generator wires everything via the call to `app.MapAllEndpoints();` in Program.cs.
+- Handlers are private static methods that return `Task<Ok<T>>` (or other `IResult` types) using `TypedResults`:
+  ```csharp
+  [EndpointGroup]
+  public static class QuestionEndpoints
+  {
+      public static void MapEndpoints(IEndpointRouteBuilder endpoints)
+      {
+          var group = endpoints.MapGroup("question/").WithTags("Question");
+          group.MapPost("ask", HandleAskAsync);
+          group.MapPost("similarity", HandleSimilarityAsync);
+      }
+
+      private static async Task<Ok<string>> HandleAskAsync(
+          QuestionAskRequest request, IQuestionService questionService, CancellationToken cancellationToken)
+      {
+          var answer = await questionService.AskAsync(request.Question, request.Email, cancellationToken);
+          return TypedResults.Ok(answer);
+      }
+  }
+  ```
+- Example source generator lives in `Mentekus.Api.SourceGenerators/EndpointGroupGenerator.cs`.
+
+### Data Transfer Objects (Requests, Responses, Entities)
+- Request DTOs are `sealed record` with `[property: JsonRequired]` on mandatory parameters:
+  ```csharp
+  public sealed record QuestionAskRequest(
+      [property: JsonRequired] string Question,
+      [property: JsonRequired] string Email);
+  ```
+- Response DTOs are usually `sealed record` (or simple classes when returned from Dapper `QueryAsync<T>`).
+- `QuestionSimilarityResponse` is currently co-located in `Requests/` for convenience.
+- **Entities** are mutable `class` types (not records) with public setters and sensible defaults. They exist only for Dapper materialization:
+  ```csharp
+  public class Question
+  {
+      public Guid Id { get; set; }
+      public string Text { get; set; } = string.Empty;
+      public Vector? Embedding { get; set; }
+      // ...
+  }
+  ```
+
+### SQL Queries
+- Every feature has a `*Sql.cs` file containing `public const string` raw literals.
+- Use C# raw string literals (`"""`).
+- Formatting rules (follow exactly for consistency):
+  - Opening `"""` followed by newline.
+  - First SQL keyword on its own line, indented with 4 spaces.
+  - Subsequent lines indented to align under the keyword.
+  - Closing `""";` on its own line at the same indent level as the opening content.
+- Correct example from the codebase:
+  ```csharp
+  public static class QuestionSql
+  {
+      public const string InsertQuestion = """
+          INSERT INTO Questions (Id, Text, Embedding, CreatedAt, AskedByUserId) 
+          VALUES (@Id, @Text, @Embedding, @CreatedAt, @AskedByUserId)
+          """;
+
+      public const string FindSimilarQuestions = """
+          SELECT q.Text, 1 - (q.Embedding <=> @Vector) AS Similarity, q.AskedByUserId, u.Email AS AskedByEmail
+          FROM Questions q
+          JOIN Users u ON q.AskedByUserId = u.Id
+          WHERE q.Embedding IS NOT NULL
+          ORDER BY q.Embedding <=> @Vector
+          LIMIT @Limit
+          """;
+  }
+  ```
+- Always pass the const + parameters object (or entity) to `connection.ExecuteAsync` / `QueryAsync`.
+
+### JSON Serialization (AOT)
+- Reflection-based JSON is forbidden.
+- Configure once in Program.cs:
+  ```csharp
+  builder.Services.ConfigureHttpJsonOptions(options =>
+  {
+      options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
+      options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+  });
+  ```
+- Manually maintain [AppJsonSerializerContext.cs](Mentekus.Api/Serialization/AppJsonSerializerContext.cs):
+  ```csharp
+  [JsonSerializable(typeof(QuestionAskRequest))]
+  [JsonSerializable(typeof(QuestionSimilarityResponse))]
+  [JsonSerializable(typeof(List<QuestionSimilarityResponse>))]
+  [JsonSerializable(typeof(OllamaEmbedRequest))]
+  [JsonSerializable(typeof(OllamaEmbedResponse))]
+  [JsonSerializable(typeof(Vector))]
+  [JsonSerializable(typeof(ProblemDetails))]
+  [JsonSerializable(typeof(ValidationProblemDetails))]
+  [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, ...)]
+  public partial class AppJsonSerializerContext : JsonSerializerContext { }
+  ```
+- Usage (HttpClient + minimal APIs):
+  - `PostAsJsonAsync(..., AppJsonSerializerContext.Default.YourType)`
+  - `ReadFromJsonAsync(..., AppJsonSerializerContext.Default.YourType)`
+- Always add new request/response types (and `Vector`, ProblemDetails derivatives) here immediately.
+- `[property: JsonRequired]` on records gives good validation errors that the GlobalExceptionHandler turns into clean messages.
+
+### Configuration & Options
+- Use strongly-typed options classes with a `SectionName` constant:
+  ```csharp
+  public sealed class OllamaOptions
+  {
+      public const string SectionName = "Ollama";
+      public string? BaseUrl { get; set; }
+      public string EmbeddingModel { get; set; } = "qwen3-embedding:0.6b";
+  }
+  ```
+- Bind + validate in the adapter extension:
+  ```csharp
+  services.AddOptions<OllamaOptions>()
+      .BindConfiguration(OllamaOptions.SectionName)
+      .ValidateOnStart();
+  ```
+- The main `appsettings.json` + `compose.yaml` environment variables drive config (`Ollama__BaseUrl` etc.).
+
+### Error Handling
+- Throw custom exceptions from [Infrastructure/ErrorHandling/Exceptions/](Mentekus.Api/Infrastructure/ErrorHandling/Exceptions/):
+  - `ValidationException` (for business/validation errors; supports property → messages dict)
+  - `NotFoundException`
+  - `EmbeddingFailedException`
+- The `GlobalExceptionHandler` (registered via `AddExceptionHandler`) maps them to correct HTTP status codes + RFC 7807 ProblemDetails (with `traceId` extension).
+- `JsonException` (from missing `[property: JsonRequired]`) and `ArgumentException` also become 400s.
+- Never return raw strings or throw generic exceptions from endpoint handlers for client errors — use the typed exceptions.
+
+## Database, Migrations & pgvector
+
+- **Connection setup** lives in [Shared/Database/DatabaseExtensions.cs](Mentekus.Api/Shared/Database/DatabaseExtensions.cs):
+  - `NpgsqlDataSourceBuilder` + `.UseVector()`
+  - `IDbConnection` resolved per scope from the data source
+  - `SqlMapper.AddTypeHandler(new VectorTypeHandler())`
+- **Migrations**: DbUp runs on every startup via `app.MigrateDatabase()` (see Program.cs). Scripts are embedded resources:
+  ```xml
+  <EmbeddedResource Include="Shared\Database\Migrations\*.sql"/>
+  ```
+- Scripts live in `Mentekus.Api/Shared/Database/Migrations/`, named `00NN_DescriptiveName.sql`.
+- Scripts must be idempotent (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, etc.).
+- A separate `postgres/init/001-enable-vector.sql` (and later citext migration) runs automatically when the Postgres container is created for the first time.
+- Current schema notes: emails use `citext` for case-insensitive uniqueness; questions link to users via `AskedByUserId`.
+
+## External Adapters
+
+Follow the Ollama pattern:
+- Interface in `Shared/Adapters/IOllamaAdapter.cs`
+- Implementation decorated with `[RegisterScoped]`, primary ctor taking `HttpClient` + `IOptions<>`
+- Configuration and `HttpClient` registration in a static `*Extensions.cs`
+- Always use the `AppJsonSerializerContext` overloads for `PostAsJsonAsync` / `ReadFromJsonAsync`
+- The adapter file also defines the small request/response records used only for the external call.
+
+Only the embedding path is currently implemented.
+
+## Testing
 
 ### Running Tests
+- Standard: `dotnet test Mentekus.Api.Tests`
+- Inside the Grok TUI you may also have access to a `run_test` helper.
 
-Tests are located in `Mentekus.Api.Tests`. To run them, use the `run_test` tool with the project file:
+### Unit vs Integration Tests
+- Pure logic or adapter tests (no Dapper/pgvector) → unit tests with Moq (see [OllamaAdapterTests.cs](Mentekus.Api.Tests/OllamaAdapterTests.cs)).
+- Anything touching the database, vectors, or Dapper.AOT compiled queries → **integration tests only**.
 
-```bash
-run_test Mentekus.Api.Tests.csproj
-```
+### Integration Test Pattern (Testcontainers + WebApplicationFactory)
+Use the provided base classes. They give you a real Postgres + pgvector container + the ability to swap the real `IOllamaAdapter` for a mock.
 
-Alternatively, you can run all tests in the solution:
-
-```bash
-run_test fullSolution
-```
-
-### Adding New Tests
-
-- **Unit Tests**: Use `xUnit` and `Moq`. These are suitable for business logic that does not depend on Dapper extension
-  methods.
-- **Dapper & Vector Tests**:
-    - Standard in-memory databases (EF Core InMemory, SQLite) **do not support pgvector**.
-    - Mocking `IDbConnection` for Dapper (especially `Dapper.AOT`) is fragile because extension methods are difficult to
-      mock and often require casting to `DbConnection`.
-    - **Recommended Approach**: Use **Integration Tests** with a real PostgreSQL instance via **Testcontainers**. This
-      is the only reliable way to verify `pgvector` queries and Dapper.AOT compatibility.
-
-#### Integration Test Example (Testcontainers & WebApplicationFactory)
-
-Integration tests use `TestWebApplicationFactory` (which inherits from `WebApplicationFactory`) to spin up the API and
-`Testcontainers` to provide a real PostgreSQL instance. `IntegrationTestBase` manages the lifecycle and provides access
-to the API client and mocks.
+Accurate minimal example (reflects current [IntegrationTestBase.cs](Mentekus.Api.Tests/Integration/IntegrationTestBase.cs) + factory + tests):
 
 ```csharp
 public class QuestionEndpointsTests : IntegrationTestBase
@@ -73,34 +275,32 @@ public class QuestionEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Ask_ReturnsOk_AndSavesToDatabase()
     {
-        // Arrange
+        // 1. Add a user first (question endpoints require one)
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Test User", "test@example.com"));
+
         var questionText = "What is Native AOT?";
-        var expectedEmbedding = new[] { new float[] { 0.1f, 0.2f, 0.3f } };
+        var expectedEmbedding = new[] { 0.1f, 0.2f, 0.3f };
 
         OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.IsAny<OllamaEmbedRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new OllamaEmbedResponse(expectedEmbedding));
+            .Setup(a => a.EmbedAsync(questionText, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedEmbedding);
 
-        var request = new QuestionAskRequest(questionText);
+        var request = new QuestionAskRequest(questionText, "test@example.com");
 
-        // Act
         var response = await Client.PostAsJsonAsync("/question/ask", request);
 
-        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var content = await response.Content.ReadAsStringAsync();
-        Assert.Contains(questionText, content);
+        // ...
     }
 }
 ```
 
-Base class `IntegrationTestBase` handles the lifecycle of the PostgreSQL container and the test factory.
+Base (current shape):
 
 ```csharp
 public class IntegrationTestBase : IAsyncLifetime
 {
-    protected readonly PostgreSqlContainer PostgreSqlContainer = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
+    protected readonly PostgreSqlContainer PostgreSqlContainer = new PostgreSqlBuilder("pgvector/pgvector:pg17")
         .Build();
 
     private TestWebApplicationFactory _factory = null!;
@@ -128,47 +328,52 @@ public class IntegrationTestBase : IAsyncLifetime
 }
 ```
 
-## 3. Additional Development Information
+Factory overrides the connection string and replaces the real adapter with the mock.
 
-### Code Style & Architecture
+Always prefer `AppJsonSerializerContext.Default.XXX` when reading responses in tests for realism.
 
-- **Primary Constructors**: Use **Primary Constructors** for all classes and records where possible, especially for dependency injection in services and simple data holders.
-- **Feature-based Structure**: Code is organized by features (e.g., `Features/Question`).
-- **Minimal APIs**: Endpoints are defined using Minimal APIs in `*Endpoints.cs` files.
-- **Endpoint Groups**: Endpoint group classes must be `static` and decorated with the `[EndpointGroup]` marker
-  attribute. A source generator automatically calls their `MapEndpoints(IEndpointRouteBuilder endpoints)` method via
-  `endpoints.MapAllEndpoints()`.
-- **Dependency Injection**: Extensions like `AddAdapters()` and `AddFeatures()` are used to keep `Program.cs` clean.
-  Injectio is used for source-generated dependency registration.
+## Common Pitfalls & Gotchas
 
-### JSON Serialization (AOT)
+- Forgetting to add the new request/response type to `AppJsonSerializerContext` → runtime or AOT trim errors / deserialization failures.
+- Using `docker-compose` (v1) instead of `docker compose` and `compose.yaml`.
+- Writing SQL queries directly in service files instead of `*Sql.cs`.
+- Wrong raw-string formatting for SQL (the closing `""";` indent controls dedent — misalignment produces ugly or broken SQL at runtime).
+- Throwing `ArgumentException` / returning `BadRequest(string)` instead of `ValidationException` or `NotFoundException`.
+- Trying to unit-test Dapper + pgvector with in-memory fakes (it won't work; use the Testcontainers integration base).
+- Omitting `using Mentekus.Api.Generated;` in a new `*Endpoints.cs` file.
+- Registering services with `AddScoped` instead of the `[RegisterScoped]` attribute.
+- Using records for entities that Dapper must hydrate (use mutable classes with setters).
+- Not calling `MigrateDatabase()` or having non-idempotent migration scripts.
+- Hard-coding model names instead of reading from `IOptions<OllamaOptions>`.
+- Forgetting `CancellationToken` propagation on service/adapter boundaries.
+- Placing response DTOs in a different namespace than the one used in the `JsonSerializable` attribute.
 
-Due to AOT, reflection-based serialization is discouraged.
+## Checklist: Adding a New Feature
 
-- Always use `AppJsonSerializerContext.Default` when configuring JSON options or using `HttpClient` JSON extensions.
-- When adding new DTOs or Entities that will be serialized, add them to `AppJsonSerializerContext` using
-  `[JsonSerializable]`.
-- **JSON Required Properties**: Use `[property: JsonRequired]` on request DTO properties that are mandatory. This allows the JSON deserializer to validate the request and throw a `JsonException` if properties are missing, avoiding the need for manual null or whitespace guards in endpoint handlers.
-- Types like `Pgvector.Vector` must also be registered if they are serialized.
+1. Create folder `Features/NewFeature/`.
+2. Define `INewFeatureService.cs` (interface with `Task<...> Method(..., CancellationToken ct = default)`).
+3. Create `NewFeatureService.cs`:
+   - Primary constructor dependencies.
+   - `[RegisterScoped(ServiceType = typeof(INewFeatureService))]`.
+   - Implement using `IDbConnection` + `NewFeatureSql.XXX` constants.
+4. Create `NewFeatureSql.cs` with properly formatted raw string constants.
+5. Create `Requests/NewFeatureXxxRequest.cs` (sealed records + `[property: JsonRequired]` where needed).
+6. (If needed) Add response record (can live in Requests for now).
+7. Create `NewFeatureEndpoints.cs`:
+   - `using Mentekus.Api.Generated;`
+   - `[EndpointGroup] public static class ...`
+   - `public static void MapEndpoints(...)`
+   - Private static handler methods using TypedResults.
+8. Add every new serializable type to `AppJsonSerializerContext.cs` (requests, responses, any internal records passed to JSON).
+9. Add or update integration test in `Mentekus.Api.Tests/Integration/` that uses the real Testcontainers base (add prerequisite data such as a user if required by the endpoint).
+10. Update any OpenAPI/Scalar-friendly tags or the `.http` file if you want quick manual verification.
+11. `dotnet build` + `dotnet test` (or run the integration scenario).
 
-### Database
+## Dev Tools & References
 
-- **Migrations**: **DbUp** is used for database migrations. Scripts are located in
-  `Mentekus.Api/Shared/Database/Migrations` and are embedded in the assembly.
-- **Micro-ORM**: **Dapper** is used for database access. To ensure Native AOT compatibility, avoid features that rely on
-  runtime IL generation where possible.
-- **SQL Queries**: Always store SQL queries in a separate `*Sql.cs` file within the feature folder (e.g.,
-  `Features/Question/QuestionSql.cs`). Use **C# raw string literals** (`"""`) for all SQL strings to maintain
-  readability and avoid escaping issues.
-    - SQL parts should be on new lines.
-    - The first keyword (e.g., `SELECT`, `INSERT`) should start on a new line and be indented by one tab (4 spaces).
-    - Example:
-      ```csharp
-      public const string GetUserIdByEmail = """
-          SELECT Id 
-          FROM Users 
-          WHERE Email = @Email
-          """;
-      ```
-- **Pgvector**: Vector embeddings are handled via `Npgsql` and `Pgvector` packages.
-  `NpgsqlDataSourceBuilder.UseVector()` must be called when configuring the connection.
+- API exploration: Scalar UI (`/scalar/v1` in dev) or the `.http` file in the Mentekus.Api folder.
+- Migrations are re-run on every `dotnet run` / container start (DbUp is idempotent).
+- The source generator for endpoints runs automatically on build; generated code lives under `obj/...` or the `Mentekus.Api.Generated` namespace at runtime.
+- All environment configuration for Docker is in `compose.yaml` (override via environment variables using double-underscore or colon syntax).
+
+Follow the patterns in the two existing features (User + Question) as the canonical reference.
