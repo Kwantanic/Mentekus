@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Dapper;
 using Mentekus.Api.Generated;
 using Mentekus.Api.Infrastructure.ErrorHandling;
@@ -13,6 +14,7 @@ var builder = WebApplication.CreateSlimBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
+    options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
 });
 
 builder.Services.AddDatabase();
