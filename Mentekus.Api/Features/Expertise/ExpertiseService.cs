@@ -164,9 +164,7 @@ public class ExpertiseService(
     private async Task<Guid?> GetUserIdByEmailInternalAsync(string email, CancellationToken cancellationToken)
     {
         // Lightweight reuse of user query logic; avoid cross dep for minimal.
-        // CT forwarded via CommandDefinition (new path); other Dapper sites match pre-existing codebase pattern (no CT, as all queries are short-lived under scoped IDbConnection).
-        var cmd = new CommandDefinition("SELECT Id FROM Users WHERE LOWER(Email) = LOWER(@Email)", new { Email = email }, cancellationToken: cancellationToken);
-        return await connection.ExecuteScalarAsync<Guid?>(cmd);
+        return await connection.ExecuteScalarAsync<Guid?>("SELECT Id FROM Users WHERE LOWER(Email) = LOWER(@Email)", new { Email = email });
     }
 
     private static double ComputeCosineSimilarity(float[] queryEmb, Pgvector.Vector? userVec)

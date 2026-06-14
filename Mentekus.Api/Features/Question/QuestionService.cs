@@ -2,7 +2,6 @@ using System.Data;
 using Dapper;
 using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Question.Entities;
-using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Mentekus.Api.Shared.Adapters;
@@ -38,7 +37,8 @@ public class QuestionService(
         await connection.ExecuteAsync(QuestionSql.InsertQuestion, questionEntity);
 
         // Blending side effect (post-ask): update asker's expertise (small alpha); non-fatal on generate per design
-        await expertiseService.UpdateFromContributionAsync(userId.Value, embedding, question, ExpertiseSql.QuestionSourceType, cancellationToken: cancellationToken);
+        await expertiseService.UpdateFromContributionAsync(userId.Value, embedding, question,
+            ExpertiseSql.QuestionSourceType, cancellationToken: cancellationToken);
 
         return $"Question saved (ID: {questionEntity.Id}). Embedding length: {embedding?.Length ?? 0}.";
     }
@@ -58,11 +58,13 @@ public class QuestionService(
         return result.ToList();
     }
 
-    public async Task<string> AnswerAsync(Guid questionId, string answer, string email, CancellationToken cancellationToken = default)
+    public async Task<string> AnswerAsync(Guid questionId, string answer, string email,
+        CancellationToken cancellationToken = default)
     {
-        // CT via CommandDefinition for new answer path (matches the addressed pattern in new Expertise internal; other Dapper calls follow pre-existing no-CT style in this file).
-        var existsCmd = new CommandDefinition(QuestionSql.QuestionExists, new { Id = questionId }, cancellationToken: cancellationToken);
-        var exists = await connection.ExecuteScalarAsync<bool>(existsCmd);
+        var exists = await connection.ExecuteScalarAsync<bool>(
+            QuestionSql.QuestionExists,
+            new { Id = questionId });
+
         if (!exists)
             throw new NotFoundException($"Question with ID {questionId} not found.");
 
@@ -75,8 +77,11 @@ public class QuestionService(
             throw new EmbeddingFailedException("Failed to generate embedding for the answer.");
 
         // Always updates vector (generate for topics may fail non-fatally inside)
-        await expertiseService.UpdateFromContributionAsync(userId.Value, embedding, answer, ExpertiseSql.AnswerSourceType, cancellationToken: cancellationToken);
+        await expertiseService.UpdateFromContributionAsync(userId.Value, embedding, answer,
+            ExpertiseSql.AnswerSourceType, cancellationToken: cancellationToken);
 
         return $"Answer recorded for question {questionId}. Expertise updated.";
     }
+
+    internal record QuestionParameter(Guid Id);
 }

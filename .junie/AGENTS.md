@@ -346,6 +346,7 @@ Always prefer `AppJsonSerializerContext.Default.XXX` when reading responses in t
 - Not calling `MigrateDatabase()` or having non-idempotent migration scripts.
 - Hard-coding model names instead of reading from `IOptions<OllamaOptions>`.
 - Forgetting `CancellationToken` propagation on service/adapter boundaries.
+- Using `CommandDefinition` (Dapper) which is not supported by Dapper.AOT (use direct `connection` method overloads instead).
 - Placing response DTOs in a different namespace than the one used in the `JsonSerializable` attribute.
 
 ## Checklist: Adding a New Feature

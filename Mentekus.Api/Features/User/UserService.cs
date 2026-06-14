@@ -24,8 +24,6 @@ public class UserService(IDbConnection connection) : IUserService
 
     public async Task UpdateUserPreferencesAsync(Guid userId, bool? profileVisible = null, bool? allowRouting = null, CancellationToken cancellationToken = default)
     {
-        // CT forwarded for new prefs path (via CommandDefinition); consistent with addressed new paths elsewhere.
-        var cmd = new CommandDefinition(UserSql.UpdateUserPreferences, new { UserId = userId, ProfileVisible = profileVisible, AllowRouting = allowRouting }, cancellationToken: cancellationToken);
-        await connection.ExecuteAsync(cmd);
+        await connection.ExecuteAsync(UserSql.UpdateUserPreferences, new { UserId = userId, ProfileVisible = profileVisible, AllowRouting = allowRouting });
     }
 }
