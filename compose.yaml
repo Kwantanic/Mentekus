@@ -15,6 +15,10 @@
         condition: service_healthy
       ollama:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 1gb
 
   postgres:
     image: pgvector/pgvector:pg17
@@ -33,6 +37,10 @@
       interval: 5s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 1gb
     restart: unless-stopped
 
   ollama:
@@ -47,6 +55,8 @@
       - "11434:11434"
     deploy:
       resources:
+        limits:
+          memory: 5gb
         reservations:
           devices:
             - driver: nvidia
