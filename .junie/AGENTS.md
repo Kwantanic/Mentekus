@@ -127,8 +127,9 @@ public class IntegrationTestBase : IAsyncLifetime
 ### Code Style & Architecture
 
 - **Feature-based Structure**: Code is organized by features (e.g., `Features/Question`).
-- **Minimal APIs**: Endpoints are defined using Minimal APIs in `*Endpoints.cs` files and mapped in `Program.cs`.
-- **Dependency Injection**: Extensions like `AddAdapters()` and `AddFeatures()` are used to keep `Program.cs` clean.
+- **Minimal APIs**: Endpoints are defined using Minimal APIs in `*Endpoints.cs` files.
+- **Endpoint Groups**: Endpoint group classes must be `static` and decorated with the `[EndpointGroup]` marker attribute. A source generator automatically calls their `MapEndpoints(IEndpointRouteBuilder endpoints)` method via `endpoints.MapAllEndpoints()`.
+- **Dependency Injection**: Extensions like `AddAdapters()` and `AddFeatures()` are used to keep `Program.cs` clean. Injectio is used for source-generated dependency registration.
 
 ### JSON Serialization (AOT)
 

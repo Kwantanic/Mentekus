@@ -1,19 +1,18 @@
 using Mentekus.Api.Features.Question.Requests;
+using Mentekus.Api.Generated;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Mentekus.Api.Features.Question;
 
+[EndpointGroup]
 public static class QuestionEndpoints
 {
-    public static RouteGroupBuilder MapChatEndpoints(this IEndpointRouteBuilder endpoints)
+    public static void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("question/").WithTags("Question");
 
         group.MapPost("ask", HandleAskAsync);
-
         group.MapPost("similarity", HandleSimilarityAsync);
-
-        return group;
     }
 
     private static async Task<Results<Ok<string>, BadRequest<string>>> HandleAskAsync(QuestionAskRequest request,

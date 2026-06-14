@@ -1,5 +1,5 @@
 using Dapper;
-using Mentekus.Api.Features.Question;
+using Mentekus.Api.Generated;
 using Mentekus.Api.Serialization;
 using Mentekus.Api.Shared.Adapters;
 using Mentekus.Api.Shared.Database;
@@ -30,10 +30,6 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
-app.MapChatEndpoints();
+app.MapAllEndpoints();
 
 await app.RunAsync();
-
-public partial class Program
-{
-}

@@ -1,6 +1,5 @@
 using System.Data;
 using Dapper;
-using Injectio.Attributes;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Shared.Adapters;
