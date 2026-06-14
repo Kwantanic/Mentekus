@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Pgvector;
 using System.Linq;
+using System.Reflection;
 using Xunit;
 
 namespace Mentekus.Api.Tests;
@@ -13,9 +14,10 @@ namespace Mentekus.Api.Tests;
 public class ExpertiseServiceTests : Integration.IntegrationTestBase
 {
     [Fact]
-    public void BlendLogic_ComputesExpectedEmaWithDecay()
+    public void BlendLogic_ComputesExpectedEmaWithDecay_InvokesActualImpl()
     {
-        // Replicate math from service for explicit blending math coverage (pure calc test)
+        // Now invokes the *actual* private static BlendExpertiseVector via reflection (Issue 4) for direct math coverage.
+        // No more duplicated formula-only test; asserts real output (incl. decay + EMA) against expected.
         var current = new float[1024];
         current[0] = 1.0f;
         var contrib = new float[1024];
@@ -26,15 +28,30 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
         var last = DateTime.UtcNow.AddDays(-90);
         var alpha = 0.25f;
 
-        // Manual expected (same as impl)
+        // Expected using identical math (for verification of impl)
         var decayed = current[0] * 0.5f;
         var expected0 = alpha * contrib[0] + (1 - alpha) * decayed; // 0.25*0 + 0.75*0.5 = 0.375
         var expected1 = alpha * contrib[1] + (1 - alpha) * 0.0f; // 0.25
 
-        // Call via service private via reflection for math verification? Use public path + re-query instead.
-        // For this unit math, assert the formula result directly (impl details kept in one place; test the contract via integration below).
-        Assert.Equal(0.375f, expected0, 0.0001f);
-        Assert.Equal(0.25f, expected1, 0.0001f);
+        // Invoke actual impl (private static) via reflection
+        var blendMethod = typeof(ExpertiseService).GetMethod(
+            "BlendExpertiseVector",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(blendMethod);
+        var result = (float[])blendMethod.Invoke(null, new object?[] { current, contrib, alpha, last })!;
+
+        // Verify actual impl output (spot check decayed dim0, new dim1, and a zeroed dim to confirm dim handling)
+        Assert.Equal(1024, result.Length);
+        Assert.Equal(expected0, result[0], 0.0001f);
+        Assert.Equal(expected1, result[1], 0.0001f);
+        Assert.Equal(0f, result[10], 0.0001f); // untouched by input
+
+        // Also exercise the dim guard (Issue 1) on wrong-dim contribution via the real method
+        var badContrib = new float[512];
+        var ex = Assert.Throws<TargetInvocationException>(() =>
+            blendMethod.Invoke(null, new object?[] { null, badContrib, 0.1f, null }));
+        Assert.IsType<ArgumentException>(ex.InnerException);
+        Assert.Contains("got 512", ex.InnerException!.Message); // matches the guard message "must be 1024-dimensional (got 512)"
     }
 
     [Fact]
@@ -52,8 +69,7 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
 
         var profile = await expertise.GetUserExpertiseAsync(userId);
         Assert.NotNull(profile);
-        Assert.Equal("Blend User", profile.Name);
-        Assert.NotNull(profile); // at minimum profile reachable post vector update (blending exercised)
+        Assert.Equal("Blend User", profile.Name); // profile reachable post vector update (blending exercised via UpdateVectorOnly)
     }
 
     [Fact]

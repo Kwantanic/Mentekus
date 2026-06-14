@@ -23,27 +23,38 @@ public class ExpertiseService(
     {
         await UpdateVectorInternalAsync(userId, embedding, sourceType, alphaOverride, cancellationToken);
 
-        // Optional generate + graph upsert; non-fatal per spec (pure vector path continues to work)
+        // Optional generate + graph upsert; non-fatal per spec (pure vector path continues to work).
+        // Narrow LLM try per review (Issue 2): only extract/generate is "LLM"; graph upserts use separate/general non-fatal handling.
+        string[]? topics = null;
         try
         {
-            var topics = await ExtractTopicsInternalAsync(text, sourceType, cancellationToken);
-            if (topics.Length > 0)
-            {
-                var weight = GetWeightForSource(sourceType);
-                foreach (var raw in topics.Take(5))
-                {
-                    var topicName = raw?.Trim().ToLowerInvariant();
-                    if (!string.IsNullOrWhiteSpace(topicName))
-                    {
-                        await UpsertTopicAndStrengthAsync(userId, topicName, weight, cancellationToken);
-                    }
-                }
-            }
+            topics = await ExtractTopicsInternalAsync(text, sourceType, cancellationToken);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "LLM topic extraction failed for user {UserId} source {SourceType}; vector update succeeded.", userId, sourceType);
-            // Do not throw: error handling for partial LLM failure
+            // Do not throw: error handling for partial LLM failure (vector path unaffected)
+        }
+
+        if (topics != null && topics.Length > 0)
+        {
+            var weight = GetWeightForSource(sourceType);
+            foreach (var raw in topics.Take(5))
+            {
+                var topicName = raw?.Trim().ToLowerInvariant();
+                if (!string.IsNullOrWhiteSpace(topicName))
+                {
+                    try
+                    {
+                        await UpsertTopicAndStrengthAsync(userId, topicName, weight, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Graph maintenance (DB upsert) failure is also best-effort/non-fatal; use general message (not "LLM")
+                        logger.LogWarning(ex, "Topic graph maintenance failed (non-fatal) after vector update for user {UserId} source {SourceType} topic {Topic}.", userId, sourceType, topicName);
+                    }
+                }
+            }
         }
     }
 
@@ -76,8 +87,11 @@ public class ExpertiseService(
 
     private async Task UpdateVectorInternalAsync(Guid userId, float[] embedding, string sourceType, float? alphaOverride, CancellationToken cancellationToken)
     {
+        int dim = ExpertiseSql.EmbeddingDimension;
         if (embedding == null || embedding.Length == 0)
             return;
+        if (embedding.Length != dim)
+            throw new ArgumentException($"Embedding must be {dim}-dimensional (got {embedding.Length}).", nameof(embedding));
 
         var row = await connection.QuerySingleOrDefaultAsync<UserEmbeddingRow>(
             ExpertiseSql.GetUserExpertiseEmbedding, new { UserId = userId });
@@ -129,7 +143,11 @@ public class ExpertiseService(
             var re = await connection.ExecuteScalarAsync<Guid?>(
                 ExpertiseSql.GetTopicIdByName, new { Name = topicName });
             if (!re.HasValue)
+            {
+                // Rare (visibility + concurrent delete race); log for observability before skipping weight (Issue 7)
+                logger.LogDebug("Topic re-query after upsert returned no ID for name {TopicName} (skipping strength update for user {UserId}).", topicName, userId);
                 return;
+            }
             topicId = re.Value;
         }
 
@@ -139,10 +157,18 @@ public class ExpertiseService(
 
     private static float[] BlendExpertiseVector(float[]? current, float[] contribution, float alpha, DateTime? lastUpdatedUtc = null)
     {
-        const int dim = 1024;
+        int dim = ExpertiseSql.EmbeddingDimension;
         alpha = Math.Clamp(alpha, 0f, 1f);
 
-        var curr = (current != null && current.Length == dim) ? (float[])current.Clone() : new float[dim];
+        // Guard contribution dim (bug fix Issue 1): prevent IndexOutOfRange on malformed/wrong-dim embed before any indexing.
+        // (Caller also guards null/empty, but Blend is the math core and may be called directly in future/tests.)
+        if (contribution == null || contribution.Length != dim)
+        {
+            throw new ArgumentException($"Embedding contribution must be {dim}-dimensional (got {contribution?.Length ?? 0}).", nameof(contribution));
+        }
+
+        // No Clone(): ToArray() from caller already provides a fresh array; decay mutation is safe and local (Issue 3).
+        var curr = (current != null && current.Length == dim) ? current : new float[dim];
 
         if (lastUpdatedUtc.HasValue)
         {
@@ -227,10 +253,11 @@ public class ExpertiseService(
         }
     }
 
-    // Internal row types for Dapper projections (no AOT serializer needed)
+    // Internal row types for Dapper projections (no AOT serializer needed).
+    // Only selected columns are mapped (unused fields removed per review for cleanliness; see cleaned SQL in ExpertiseSql).
     private sealed record UserEmbeddingRow(Vector? ExpertiseEmbedding, DateTime? LastExpertiseUpdate);
 
-    private sealed record UserExpertiseRow(Guid UserId, string Name, string Email, Vector? ExpertiseEmbedding, string? ExpertiseSummary, DateTime? LastExpertiseUpdate);
+    private sealed record UserExpertiseRow(Guid UserId, string Name, string Email, string? ExpertiseSummary, DateTime? LastExpertiseUpdate);
 
-    private sealed record TopicStrengthRow(string Name, float Strength, DateTime LastUpdated);
+    private sealed record TopicStrengthRow(string Name);
 }

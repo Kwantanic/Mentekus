@@ -6,6 +6,9 @@ public static class ExpertiseSql
     public const string AnswerSourceType = "Answer";
     public const string QuestionSourceType = "Question";
 
+    /// <summary>Dimension of expertise embeddings (matches qwen3-embedding:0.6b output and VECTOR(1024) in schema).</summary>
+    public const int EmbeddingDimension = 1024;
+
     public const string GeneralTopicExtractionPromptTemplate = """
         From the following text (a question or answer or professional document/CV), extract 3-5 short, canonical expertise topics or skills as a strict JSON array of strings only. Use lowercase, concise phrases like "native aot" or "pgvector similarity". No other text or explanation. Text: {0}
         """;
@@ -28,13 +31,13 @@ public static class ExpertiseSql
         """;
 
     public const string FindUserExpertise = """
-        SELECT u.Id AS UserId, u.Name, u.Email, u.ExpertiseEmbedding, u.ExpertiseSummary, u.LastExpertiseUpdate
+        SELECT u.Id AS UserId, u.Name, u.Email, u.ExpertiseSummary, u.LastExpertiseUpdate
         FROM Users u
         WHERE u.Id = @UserId
         """;
 
     public const string GetUserTopics = """
-        SELECT t.Name, ute.Strength, ute.LastUpdated
+        SELECT t.Name
         FROM UserTopicExpertise ute
         JOIN Topics t ON t.Id = ute.TopicId
         WHERE ute.UserId = @UserId
