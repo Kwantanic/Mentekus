@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using Mentekus.Api.Features.Expertise;
+using Mentekus.Api.Features.User;
 using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Serialization;
 using Microsoft.AspNetCore.Mvc;
+using Moq;
 using Xunit;
 
 namespace Mentekus.Api.Tests.Integration;
@@ -44,5 +47,44 @@ public class UserEndpointsTests : IntegrationTestBase
         Assert.NotNull(problem);
         Assert.Contains("already exists", problem.Detail);
         Assert.True(problem.Errors.ContainsKey("Email"));
+    }
+
+    [Fact]
+    public async Task GetUserExpertiseProfile_ReturnsOk_WithTopicsAfterContribution()
+    {
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Prof User", "prof@example.com"));
+
+        OllamaAdapterMock.Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Enumerable.Repeat(0.2f, 1024).ToArray());
+        OllamaAdapterMock.Setup(a => a.GenerateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("[\"topicx\", \"topicy\"]");
+
+        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("some prof doc", "prof@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
+
+        var resp = await Client.GetAsync("/user/prof@example.com/expertise");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var prof = await resp.Content.ReadFromJsonAsync<UserExpertiseProfile>(AppJsonSerializerContext.Default.UserExpertiseProfile);
+        Assert.NotNull(prof);
+        Assert.Equal("Prof User", prof.Name);
+        Assert.Contains("topicx", prof.TopTopics);
+    }
+
+    [Fact]
+    public async Task UpdateUserPreferences_AllowsTogglingRoutingFlag()
+    {
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Pref User", "pref@example.com"));
+
+        var updateReq = new UserPreferencesUpdateRequest(ProfileVisible: true, AllowRouting: false);
+        var updResp = await Client.PostAsJsonAsync("/user/pref@example.com/preferences", updateReq, AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
+        Assert.Equal(HttpStatusCode.OK, updResp.StatusCode);
+        var msg = await updResp.Content.ReadAsStringAsync();
+        Assert.Contains("Preferences updated", msg);
+
+        // verify by routing (should exclude)
+        OllamaAdapterMock.Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Enumerable.Repeat(0.3f, 1024).ToArray());
+        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("pref doc for route test", "pref@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
+
+        var routeResp = await Client.PostAsJsonAsync("/expertise/route", new ExpertiseRouteRequest("pref doc for route test", 3), AppJsonSerializerContext.Default.ExpertiseRouteRequest);
+        var matches = await routeResp.Content.ReadFromJsonAsync<List<ExpertiseRouteMatch>>(AppJsonSerializerContext.Default.ListExpertiseRouteMatch);
+        Assert.NotNull(matches);
+        Assert.DoesNotContain(matches, m => m.Email == "pref@example.com");
     }
 }

@@ -9,4 +9,6 @@ public interface IQuestionService
 
     Task<List<QuestionSimilarityResponse>> GetSimilarQuestionsAsync(string text, int limit,
         CancellationToken cancellationToken = default);
+
+    Task<string> AnswerAsync(Guid questionId, string answer, string email, CancellationToken cancellationToken = default);
 }

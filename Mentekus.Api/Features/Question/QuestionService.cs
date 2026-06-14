@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
@@ -12,6 +13,7 @@ namespace Mentekus.Api.Features.Question;
 public class QuestionService(
     IOllamaAdapter ollamaAdapter,
     IUserService userService,
+    IExpertiseService expertiseService,
     IDbConnection connection) : IQuestionService
 {
     public async Task<string> AskAsync(string question, string email,
@@ -36,6 +38,9 @@ public class QuestionService(
 
         await connection.ExecuteAsync(QuestionSql.InsertQuestion, questionEntity);
 
+        // Blending side effect (post-ask): update asker's expertise (small alpha); non-fatal on generate per design
+        await expertiseService.UpdateFromContributionAsync(userId.Value, embedding, question, ExpertiseSql.QuestionSourceType, cancellationToken: cancellationToken);
+
         return $"Question saved (ID: {questionEntity.Id}). Embedding length: {embedding?.Length ?? 0}.";
     }
 
@@ -52,5 +57,25 @@ public class QuestionService(
             await connection.QueryAsync<QuestionSimilarityResponse>(QuestionSql.FindSimilarQuestions,
                 new { Vector = vector, Limit = limit });
         return result.ToList();
+    }
+
+    public async Task<string> AnswerAsync(Guid questionId, string answer, string email, CancellationToken cancellationToken = default)
+    {
+        var exists = await connection.ExecuteScalarAsync<bool>(QuestionSql.QuestionExists, new { Id = questionId });
+        if (!exists)
+            throw new NotFoundException($"Question with ID {questionId} not found.");
+
+        var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
+        if (userId == null)
+            throw new NotFoundException($"User with email {email} not found.");
+
+        var embedding = await ollamaAdapter.EmbedAsync(answer, cancellationToken);
+        if (embedding == null)
+            throw new EmbeddingFailedException("Failed to generate embedding for the answer.");
+
+        // Always updates vector (generate for topics may fail non-fatally inside)
+        await expertiseService.UpdateFromContributionAsync(userId.Value, embedding, answer, ExpertiseSql.AnswerSourceType, cancellationToken: cancellationToken);
+
+        return $"Answer recorded for question {questionId}. Expertise updated.";
     }
 }

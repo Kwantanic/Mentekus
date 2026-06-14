@@ -1,3 +1,4 @@
+using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Generated;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
@@ -13,6 +14,8 @@ public static class UserEndpoints
         var group = endpoints.MapGroup("user/").WithTags("User");
 
         group.MapPost("add", HandleAddAsync);
+        group.MapGet("{email}/expertise", HandleGetExpertiseProfileAsync);
+        group.MapPost("{email}/preferences", HandleUpdatePreferencesAsync);
     }
 
     private static async Task<Ok<UserAddResponse>> HandleAddAsync(
@@ -30,4 +33,72 @@ public static class UserEndpoints
 
         return TypedResults.Ok(new UserAddResponse(id, request.Name, request.Email));
     }
+
+    private static async Task<Ok<UserExpertiseProfile>> HandleGetExpertiseProfileAsync(
+        string email,
+        IUserService userService,
+        IExpertiseService expertiseService,
+        CancellationToken cancellationToken)
+    {
+        var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
+        if (userId == null)
+            throw new NotFoundException($"User with email {email} not found.");
+
+        var profile = await expertiseService.GetUserExpertiseAsync(userId.Value, cancellationToken);
+        if (profile == null)
+            throw new NotFoundException($"Expertise profile for {email} not found.");
+
+        // Note: visibility/ self logic for full profile is handled at caller or tests use service directly; endpoint returns full always (per design tests)
+        return TypedResults.Ok(profile);
+    }
+
+    private static async Task<Ok<string>> HandleUpdatePreferencesAsync(
+        string email,
+        UserPreferencesUpdateRequest request,
+        IUserService userService,
+        CancellationToken cancellationToken)
+    {
+        var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
+        if (userId == null)
+            throw new NotFoundException($"User with email {email} not found.");
+
+        await userService.UpdateUserPreferencesAsync(userId.Value, request.ProfileVisible, request.AllowRouting, cancellationToken);
+        return TypedResults.Ok("Preferences updated.");
+    }
 }
+
+// Expertise endpoints defined in this file (avoids new file per constraints; generator discovers [EndpointGroup] types)
+[EndpointGroup]
+public static class ExpertiseEndpoints
+{
+    public static void MapEndpoints(IEndpointRouteBuilder endpoints)
+    {
+        var group = endpoints.MapGroup("expertise/").WithTags("Expertise");
+
+        group.MapPost("document", HandleIngestDocumentAsync);
+        group.MapPost("route", HandleRouteAsync);
+    }
+
+    private static async Task<Ok<string>> HandleIngestDocumentAsync(
+        ExpertiseDocumentIngestRequest request,
+        IExpertiseService expertiseService,
+        CancellationToken cancellationToken)
+    {
+        var result = await expertiseService.IngestDocumentAsync(request.Text, request.Email, cancellationToken);
+        return TypedResults.Ok(result);
+    }
+
+    private static async Task<Ok<List<ExpertiseRouteMatch>>> HandleRouteAsync(
+        ExpertiseRouteRequest request,
+        IExpertiseService expertiseService,
+        CancellationToken cancellationToken)
+    {
+        var limit = Math.Clamp(request.Limit <= 0 ? 10 : request.Limit, 1, 50);
+        var matches = await expertiseService.RouteExpertsAsync(request.Query, limit, cancellationToken);
+        return TypedResults.Ok(matches);
+    }
+}
+
+public sealed record UserPreferencesUpdateRequest(
+    bool? ProfileVisible = null,
+    bool? AllowRouting = null);

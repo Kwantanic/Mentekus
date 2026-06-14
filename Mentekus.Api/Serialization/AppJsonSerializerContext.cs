@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json.Serialization;
+using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Question.Requests;
+using Mentekus.Api.Features.User;
 using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Shared.Adapters;
 using Pgvector;
@@ -11,6 +13,7 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(QuestionSimilarityRequest))]
 [JsonSerializable(typeof(QuestionSimilarityResponse))]
 [JsonSerializable(typeof(List<QuestionSimilarityResponse>))]
+[JsonSerializable(typeof(QuestionAnswerRequest))]
 [JsonSerializable(typeof(OllamaEmbedRequest))]
 [JsonSerializable(typeof(OllamaEmbedResponse))]
 [JsonSerializable(typeof(OllamaGenerateRequest))]
@@ -18,6 +21,13 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(Vector))]
 [JsonSerializable(typeof(UserAddRequest))]
 [JsonSerializable(typeof(UserAddResponse))]
+[JsonSerializable(typeof(UserPreferencesUpdateRequest))]
+[JsonSerializable(typeof(UserExpertiseProfile))]
+[JsonSerializable(typeof(List<UserExpertiseProfile>))]
+[JsonSerializable(typeof(ExpertiseDocumentIngestRequest))]
+[JsonSerializable(typeof(ExpertiseRouteRequest))]
+[JsonSerializable(typeof(ExpertiseRouteMatch))]
+[JsonSerializable(typeof(List<ExpertiseRouteMatch>))]
 [JsonSerializable(typeof(ProblemDetails))]
 [JsonSerializable(typeof(ValidationProblemDetails))]
 [JsonSourceGenerationOptions(

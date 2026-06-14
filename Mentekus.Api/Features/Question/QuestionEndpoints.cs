@@ -13,6 +13,7 @@ public static class QuestionEndpoints
 
         group.MapPost("ask", HandleAskAsync);
         group.MapPost("similarity", HandleSimilarityAsync);
+        group.MapPost("answer", HandleAnswerAsync);
     }
 
     private static async Task<Ok<string>> HandleAskAsync(QuestionAskRequest request,
@@ -31,5 +32,14 @@ public static class QuestionEndpoints
         var similarQuestions = await questionService.GetSimilarQuestionsAsync(request.Text, limit, cancellationToken);
 
         return TypedResults.Ok(similarQuestions);
+    }
+
+    private static async Task<Ok<string>> HandleAnswerAsync(
+        QuestionAnswerRequest request,
+        IQuestionService questionService,
+        CancellationToken cancellationToken)
+    {
+        var result = await questionService.AnswerAsync(request.QuestionId, request.Answer, request.Email, cancellationToken);
+        return TypedResults.Ok(result);
     }
 }

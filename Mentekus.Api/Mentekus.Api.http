@@ -36,3 +36,88 @@ Content-Type: application/json
 }
 
 ###
+# Add more users for expertise/routing examples
+
+POST {{Mentekus.Api_HostAddress}}/user/add
+Content-Type: application/json
+
+{
+  "name": "Grace Hopper",
+  "email": "grace@example.com"
+}
+
+POST {{Mentekus.Api_HostAddress}}/user/add
+Content-Type: application/json
+
+{
+  "name": "Linus Torvalds",
+  "email": "linus@example.com"
+}
+
+###
+# Submit answer to a question (contributes to answerer's expertise with Answer alpha; validates qid)
+# Expected: 200 "Answer recorded for question <id>. Expertise updated."
+
+POST {{Mentekus.Api_HostAddress}}/question/answer
+Content-Type: application/json
+
+{
+  "questionId": "00000000-0000-0000-0000-000000000000",
+  "answer": "Native AOT produces a self-contained executable with no JIT at runtime.",
+  "email": "grace@example.com"
+}
+
+###
+# Ingest a document/CV for expertise (high alpha blend + topics graph)
+# Expected: 200 "Document ingested. Expertise updated."
+
+POST {{Mentekus.Api_HostAddress}}/expertise/document
+Content-Type: application/json
+
+{
+  "text": "Senior .NET engineer with deep pgvector and Native AOT experience at Acme Corp.",
+  "email": "grace@example.com"
+}
+
+###
+# Route to experts (hybrid vec sim + topic match; only AllowRouting=true users; ranked by Score)
+# Returns list of ExpertiseRouteMatch: UserId, Name, Email, Score, VecSim, MatchedTopics[], Confidence
+# Expected example: [ { "userId": "...", "name": "Grace Hopper", ..., "matchedTopics": ["native aot", "pgvector"], "score": 0.87, ... } ]
+
+POST {{Mentekus.Api_HostAddress}}/expertise/route
+Content-Type: application/json
+
+{
+  "query": "native aot pgvector expert",
+  "limit": 5
+}
+
+###
+# Get user expertise profile (includes top topics from graph, summary, last update)
+# Full profile returned even if ProfileVisible=false (self access semantics)
+
+GET {{Mentekus.Api_HostAddress}}/user/grace@example.com/expertise
+
+###
+# Update user preferences (flags for visibility and routing inclusion)
+
+POST {{Mentekus.Api_HostAddress}}/user/linus@example.com/preferences
+Content-Type: application/json
+
+{
+  "profileVisible": false,
+  "allowRouting": true
+}
+
+###
+# Example route after flag changes (users with AllowRouting=false excluded from results)
+
+POST {{Mentekus.Api_HostAddress}}/expertise/route
+Content-Type: application/json
+
+{
+  "query": "kernel linux expert",
+  "limit": 3
+}
+
+###

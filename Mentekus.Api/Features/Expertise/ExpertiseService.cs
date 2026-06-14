@@ -85,6 +85,116 @@ public class ExpertiseService(
             row.LastExpertiseUpdate);
     }
 
+    public async Task<string> IngestDocumentAsync(string text, string email, CancellationToken cancellationToken = default)
+    {
+        // Resolve user (will be called from endpoint which also validates)
+        // For blending side effects post-doc
+        var userId = await GetUserIdByEmailInternalAsync(email, cancellationToken);
+        if (userId == null)
+            throw new Mentekus.Api.Infrastructure.ErrorHandling.Exceptions.NotFoundException($"User with email {email} not found.");
+
+        var embedding = await ollamaAdapter.EmbedAsync(text, cancellationToken);
+        if (embedding == null || embedding.Length == 0)
+            throw new Mentekus.Api.Infrastructure.ErrorHandling.Exceptions.EmbeddingFailedException("Failed to generate embedding for the document.");
+
+        await UpdateFromContributionAsync(userId.Value, embedding, text, ExpertiseSql.DocumentSourceType, cancellationToken: cancellationToken);
+
+        return "Document ingested. Expertise updated.";
+    }
+
+    public async Task<List<ExpertiseRouteMatch>> RouteExpertsAsync(string query, int limit, CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit <= 0 ? 10 : limit, 1, 50);
+
+        var embedding = await ollamaAdapter.EmbedAsync(query, cancellationToken);
+        if (embedding == null || embedding.Length == 0)
+            return [];
+
+        var vector = new Pgvector.Vector(embedding);
+
+        var candidates = (await connection.QueryAsync<UserRoutingRow>(
+            ExpertiseSql.FindRoutableUsersWithEmbedding,
+            new { Vector = vector, Limit = Math.Min(limit * 3, 50) })).ToList();
+
+        if (candidates.Count == 0)
+            return [];
+
+        // Extract topics for query to compute MatchedTopics (uses generate, may be mocked)
+        string[] queryTopics = [];
+        try
+        {
+            queryTopics = await ExtractTopicsInternalAsync(query, ExpertiseSql.QuestionSourceType, cancellationToken);
+        }
+        catch
+        {
+            queryTopics = [];
+        }
+
+        var matches = new List<ExpertiseRouteMatch>();
+        foreach (var cand in candidates.Take(limit))
+        {
+            var vecSim = ComputeCosineSimFromDistance(embedding, cand.ExpertiseEmbedding);
+            var userTopics = (await connection.QueryAsync<TopicStrengthRow>(
+                ExpertiseSql.GetUserTopicsForMatch,
+                new { UserId = cand.Id, Limit = 20 })).Select(t => t.Name).ToArray();
+
+            var matched = queryTopics.Intersect(userTopics, StringComparer.OrdinalIgnoreCase).ToArray();
+
+            // Hybrid score: vec sim primary + bonus for topic overlap
+            var topicBonus = matched.Length > 0 ? Math.Min(matched.Length * 0.05, 0.2) : 0.0;
+            var score = Math.Clamp(vecSim + topicBonus, 0.0, 1.0);
+            var confidence = Math.Clamp(vecSim, 0.0, 1.0);
+
+            matches.Add(new ExpertiseRouteMatch(
+                cand.Id,
+                cand.Name,
+                cand.Email,
+                score,
+                vecSim,
+                matched,
+                confidence));
+        }
+
+        // Re-rank by hybrid score desc
+        matches = matches.OrderByDescending(m => m.Score).ThenByDescending(m => m.VecSim).ToList();
+        return matches;
+    }
+
+    private async Task<Guid?> GetUserIdByEmailInternalAsync(string email, CancellationToken cancellationToken)
+    {
+        // Lightweight reuse of user query logic; avoid cross dep for minimal
+        return await connection.ExecuteScalarAsync<Guid?>(
+            "SELECT Id FROM Users WHERE LOWER(Email) = LOWER(@Email)",
+            new { Email = email });
+    }
+
+    private static double ComputeCosineSimFromDistance(float[] queryEmb, Pgvector.Vector? userVec)
+    {
+        if (userVec == null) return 0.0;
+        var u = userVec.ToArray();
+        if (u.Length != queryEmb.Length) return 0.0;
+        // Since PG <=> for normalized? use 1 - distance (as done in question similarity)
+        // For accuracy here, we approx; actual DB ordered by it already.
+        // To compute numeric sim value, use 1 - (eucl? but for pgvector default cosine with <=> ?)
+        // Follow existing pattern in QuestionSql: 1 - ( <=> )
+        // But to get actual number, we can compute it client or use sql. For smallest, simulate as 1 - avg dist approx but use dot for cosine if unit.
+        // Simplest consistent: we don't have exact dist here, use dummy based on order but to have real, implement cosine:
+        double dot = 0, qn = 0, un = 0;
+        for (int i = 0; i < queryEmb.Length; i++)
+        {
+            dot += queryEmb[i] * u[i];
+            qn += queryEmb[i] * queryEmb[i];
+            un += u[i] * u[i];
+        }
+        var qNorm = Math.Sqrt(qn);
+        var uNorm = Math.Sqrt(un);
+        if (qNorm == 0 || uNorm == 0) return 0;
+        return dot / (qNorm * uNorm);  // cosine sim ~ [ -1..1] but embeddings positive, ~0..1
+    }
+
+    // Internal row for routing candidates (Dapper, not for JSON)
+    private sealed record UserRoutingRow(Guid Id, string Name, string Email, Pgvector.Vector? ExpertiseEmbedding);
+
     private async Task UpdateVectorInternalAsync(Guid userId, float[] embedding, string sourceType, float? alphaOverride, CancellationToken cancellationToken)
     {
         int dim = ExpertiseSql.EmbeddingDimension;

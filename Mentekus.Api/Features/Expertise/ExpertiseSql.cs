@@ -61,4 +61,21 @@ public static class ExpertiseSql
         ON CONFLICT (UserId, TopicId)
         DO UPDATE SET Strength = UserTopicExpertise.Strength + @Strength, LastUpdated = now()
         """;
+
+    public const string FindRoutableUsersWithEmbedding = """
+        SELECT Id, Name, Email, ExpertiseEmbedding
+        FROM Users 
+        WHERE AllowRouting = true AND ExpertiseEmbedding IS NOT NULL
+        ORDER BY ExpertiseEmbedding <=> @Vector
+        LIMIT @Limit
+        """;
+
+    public const string GetUserTopicsForMatch = """
+        SELECT t.Name
+        FROM UserTopicExpertise ute
+        JOIN Topics t ON t.Id = ute.TopicId
+        WHERE ute.UserId = @UserId
+        ORDER BY ute.Strength DESC, t.Name
+        LIMIT @Limit
+        """;
 }

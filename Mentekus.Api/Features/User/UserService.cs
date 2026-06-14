@@ -21,4 +21,18 @@ public class UserService(IDbConnection connection) : IUserService
             new { Id = id, Name = name, Email = email });
         return id;
     }
+
+    public async Task<User.Entities.User?> GetUserByEmailAsync(string email, CancellationToken cancellationToken = default)
+    {
+        return await connection.QuerySingleOrDefaultAsync<User.Entities.User>(
+            UserSql.GetUserByEmail,
+            new { Email = email });
+    }
+
+    public async Task UpdateUserPreferencesAsync(Guid userId, bool? profileVisible = null, bool? allowRouting = null, CancellationToken cancellationToken = default)
+    {
+        await connection.ExecuteAsync(
+            UserSql.UpdateUserPreferences,
+            new { UserId = userId, ProfileVisible = profileVisible, AllowRouting = allowRouting });
+    }
 }

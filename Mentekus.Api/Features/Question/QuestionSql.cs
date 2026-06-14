@@ -15,4 +15,8 @@ public static class QuestionSql
         ORDER BY q.Embedding <=> @Vector
         LIMIT @Limit
         """;
+
+    public const string QuestionExists = """
+        SELECT EXISTS(SELECT 1 FROM Questions WHERE Id = @Id)
+        """;
 }

@@ -11,3 +11,8 @@ public sealed record QuestionSimilarityResponse(
     double Similarity,
     Guid AskedByUserId,
     string AskedByEmail);
+
+public sealed record QuestionAnswerRequest(
+    [property: JsonRequired] Guid QuestionId,
+    [property: JsonRequired] string Answer,
+    [property: JsonRequired] string Email);
