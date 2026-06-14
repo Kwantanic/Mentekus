@@ -128,8 +128,11 @@ public class IntegrationTestBase : IAsyncLifetime
 
 - **Feature-based Structure**: Code is organized by features (e.g., `Features/Question`).
 - **Minimal APIs**: Endpoints are defined using Minimal APIs in `*Endpoints.cs` files.
-- **Endpoint Groups**: Endpoint group classes must be `static` and decorated with the `[EndpointGroup]` marker attribute. A source generator automatically calls their `MapEndpoints(IEndpointRouteBuilder endpoints)` method via `endpoints.MapAllEndpoints()`.
-- **Dependency Injection**: Extensions like `AddAdapters()` and `AddFeatures()` are used to keep `Program.cs` clean. Injectio is used for source-generated dependency registration.
+- **Endpoint Groups**: Endpoint group classes must be `static` and decorated with the `[EndpointGroup]` marker
+  attribute. A source generator automatically calls their `MapEndpoints(IEndpointRouteBuilder endpoints)` method via
+  `endpoints.MapAllEndpoints()`.
+- **Dependency Injection**: Extensions like `AddAdapters()` and `AddFeatures()` are used to keep `Program.cs` clean.
+  Injectio is used for source-generated dependency registration.
 
 ### JSON Serialization (AOT)
 
@@ -146,5 +149,18 @@ Due to AOT, reflection-based serialization is discouraged.
   `Mentekus.Api/Shared/Database/Migrations` and are embedded in the assembly.
 - **Micro-ORM**: **Dapper** is used for database access. To ensure Native AOT compatibility, avoid features that rely on
   runtime IL generation where possible.
+- **SQL Queries**: Always store SQL queries in a separate `*Sql.cs` file within the feature folder (e.g.,
+  `Features/Question/QuestionSql.cs`). Use **C# raw string literals** (`"""`) for all SQL strings to maintain
+  readability and avoid escaping issues.
+    - SQL parts should be on new lines.
+    - The first keyword (e.g., `SELECT`, `INSERT`) should start on a new line and be indented by one tab (4 spaces).
+    - Example:
+      ```csharp
+      public const string GetUserIdByEmail = """
+          SELECT Id 
+          FROM Users 
+          WHERE Email = @Email
+          """;
+      ```
 - **Pgvector**: Vector embeddings are handled via `Npgsql` and `Pgvector` packages.
   `NpgsqlDataSourceBuilder.UseVector()` must be called when configuring the connection.

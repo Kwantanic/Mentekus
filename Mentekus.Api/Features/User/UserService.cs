@@ -13,14 +13,14 @@ public class UserService(IDbConnection connection) : IUserService
             return null;
 
         var userId = await connection.ExecuteScalarAsync<Guid?>(
-            "SELECT Id FROM Users WHERE Email = @Email",
+            UserSql.GetUserIdByEmail,
             new { Email = email });
 
         if (userId == null)
         {
             userId = Guid.NewGuid();
             await connection.ExecuteAsync(
-                "INSERT INTO Users (Id, Name, Email) VALUES (@Id, @Name, @Email)",
+                UserSql.InsertUser,
                 new { Id = userId, Name = name ?? string.Empty, Email = email });
         }
 
