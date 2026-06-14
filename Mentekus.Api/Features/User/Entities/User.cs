@@ -12,4 +12,6 @@ public class User
     public bool ProfileVisible { get; set; } = true;
     public bool AllowRouting { get; set; } = true;
     public Vector? ExpertiseEmbedding { get; set; }
+    public string? ExpertiseSummary { get; set; }
+    public DateTime? LastExpertiseUpdate { get; set; }
 }

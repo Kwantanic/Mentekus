@@ -13,6 +13,8 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(List<QuestionSimilarityResponse>))]
 [JsonSerializable(typeof(OllamaEmbedRequest))]
 [JsonSerializable(typeof(OllamaEmbedResponse))]
+[JsonSerializable(typeof(OllamaGenerateRequest))]
+[JsonSerializable(typeof(OllamaGenerateResponse))]
 [JsonSerializable(typeof(Vector))]
 [JsonSerializable(typeof(UserAddRequest))]
 [JsonSerializable(typeof(UserAddResponse))]
