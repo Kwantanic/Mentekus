@@ -132,6 +132,7 @@ public class IntegrationTestBase : IAsyncLifetime
 
 ### Code Style & Architecture
 
+- **Primary Constructors**: Use **Primary Constructors** for all classes and records where possible, especially for dependency injection in services and simple data holders.
 - **Feature-based Structure**: Code is organized by features (e.g., `Features/Question`).
 - **Minimal APIs**: Endpoints are defined using Minimal APIs in `*Endpoints.cs` files.
 - **Endpoint Groups**: Endpoint group classes must be `static` and decorated with the `[EndpointGroup]` marker

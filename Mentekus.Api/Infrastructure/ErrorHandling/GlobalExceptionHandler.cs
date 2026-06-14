@@ -1,12 +1,15 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Mentekus.Api.Shared.ErrorHandling;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Mentekus.Api.Infrastructure.ErrorHandling;
 
-public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IProblemDetailsService problemDetailsService) : IExceptionHandler
+public class GlobalExceptionHandler(
+    ILogger<GlobalExceptionHandler> logger,
+    IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
@@ -20,6 +23,10 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IPro
             ValidationException => StatusCodes.Status400BadRequest,
             JsonException => StatusCodes.Status400BadRequest,
             BadHttpRequestException => StatusCodes.Status400BadRequest,
+            ArgumentException => StatusCodes.Status400BadRequest,
+            UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
+            NotFoundException => StatusCodes.Status404NotFound,
+            OperationCanceledException => 499, // Client Closed Request
             _ => StatusCodes.Status500InternalServerError
         };
 
@@ -27,7 +34,8 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IPro
 
         var problemDetails = exception switch
         {
-            ValidationException validationException => new ValidationProblemDetails(validationException.Errors ?? new Dictionary<string, string[]>())
+            ValidationException validationException => new ValidationProblemDetails(validationException.Errors ??
+                new Dictionary<string, string[]>())
             {
                 Status = statusCode,
                 Title = "Validation Error",
@@ -45,10 +53,38 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IPro
             {
                 Status = statusCode,
                 Title = "Bad Request",
-                Detail = (badHttpRequestException.InnerException is JsonException jsonEx)
+                Detail = badHttpRequestException.InnerException is JsonException jsonEx
                     ? GetJsonExceptionDetail(jsonEx)
                     : badHttpRequestException.Message,
                 Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1"
+            },
+            ArgumentException argumentException => new ProblemDetails
+            {
+                Status = statusCode,
+                Title = "Bad Request",
+                Detail = argumentException.Message,
+                Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1"
+            },
+            UnauthorizedAccessException unauthorizedAccessException => new ProblemDetails
+            {
+                Status = statusCode,
+                Title = "Unauthorized",
+                Detail = unauthorizedAccessException.Message,
+                Type = "https://tools.ietf.org/html/rfc7235#section-3.1"
+            },
+            NotFoundException notFoundException => new ProblemDetails
+            {
+                Status = statusCode,
+                Title = "Not Found",
+                Detail = notFoundException.Message,
+                Type = "https://tools.ietf.org/html/rfc7231#section-6.5.4"
+            },
+            OperationCanceledException => new ProblemDetails
+            {
+                Status = statusCode,
+                Title = "Client Closed Request",
+                Detail = "The request was canceled by the client.",
+                Type = "https://tools.ietf.org/html/rfc7231#section-6.5"
             },
             _ => new ProblemDetails
             {
@@ -60,9 +96,7 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IPro
         };
 
         if (exception is JsonException && logger.IsEnabled(LogLevel.Debug))
-        {
             problemDetails.Detail += $" {exception.Message}";
-        }
 
         problemDetails.Extensions["traceId"] = Activity.Current?.Id ?? httpContext.TraceIdentifier;
 
@@ -82,7 +116,7 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IPro
         // Message usually looks like: JSON deserialization for type '...' was missing required properties including: 'propertyName'.
         if (message.Contains("missing required properties including:", StringComparison.OrdinalIgnoreCase))
         {
-            var match = System.Text.RegularExpressions.Regex.Match(message, @"including: '([^']+)'", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var match = Regex.Match(message, @"including: '([^']+)'", RegexOptions.IgnoreCase);
             if (match.Success)
             {
                 var propertyName = match.Groups[1].Value;
@@ -97,9 +131,7 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IPro
             var propertyName = exception.Path[2..];
             // If it's a simple property (no nested path)
             if (!propertyName.Contains('.') && !propertyName.Contains('['))
-            {
                 return $"request.{propertyName} is malformed or missing";
-            }
         }
 
         return $"The request contains malformed JSON: {message}";
