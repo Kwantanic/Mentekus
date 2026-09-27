@@ -5,7 +5,6 @@ using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Mentekus.Api.Serialization;
 using Microsoft.AspNetCore.Mvc;
-using Moq;
 using Xunit;
 
 namespace Mentekus.Api.Tests.Integration;
@@ -25,9 +24,7 @@ public class ExceptionMappingTests : IntegrationTestBase
     {
         // Arrange
         await EnsureUserExists();
-        OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.Is<string>(s => s == "trigger-notfound"), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new NotFoundException("Test Entity", 123));
+        Ollama.EmbedThrows(s => s == "trigger-notfound", new NotFoundException("Test Entity", 123));
 
         // Act
         var response = await Client.PostAsJsonAsync("/question/ask",
@@ -47,9 +44,7 @@ public class ExceptionMappingTests : IntegrationTestBase
     {
         // Arrange
         await EnsureUserExists();
-        OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.Is<string>(s => s == "trigger-unauthorized"), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new UnauthorizedAccessException("Test Unauthorized"));
+        Ollama.EmbedThrows(s => s == "trigger-unauthorized", new UnauthorizedAccessException("Test Unauthorized"));
 
         // Act
         var response = await Client.PostAsJsonAsync("/question/ask",
@@ -72,9 +67,7 @@ public class ExceptionMappingTests : IntegrationTestBase
         // but QuestionEndpoints also validates it. 
         // Let's mock OllamaAdapter to throw it.
         await EnsureUserExists();
-        OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.Is<string>(s => s == "trigger-argument"), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new ArgumentException("Test Argument"));
+        Ollama.EmbedThrows(s => s == "trigger-argument", new ArgumentException("Test Argument"));
 
         // Act
         var response = await Client.PostAsJsonAsync("/question/ask",
@@ -99,9 +92,7 @@ public class ExceptionMappingTests : IntegrationTestBase
             { "Prop1", ["Error 1", "Error 2"] },
             { "Prop2", ["Error 3"] }
         };
-        OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(It.Is<string>(s => s == "trigger-validation"), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new ValidationException(errors));
+        Ollama.EmbedThrows(s => s == "trigger-validation", new ValidationException(errors));
 
         // Act
         var response = await Client.PostAsJsonAsync("/question/ask",

@@ -1,7 +1,8 @@
-using Mentekus.Api.Shared.Adapters;
-using Moq;
+using Dapper;
 using Testcontainers.PostgreSql;
 using Xunit;
+
+[assembly: DapperAot]
 
 namespace Mentekus.Api.Tests.Integration;
 
@@ -14,7 +15,7 @@ public class IntegrationTestBase : IAsyncLifetime
 
     protected HttpClient Client { get; private set; } = null!;
     protected IServiceProvider Services { get; private set; } = null!;
-    protected Mock<IOllamaAdapter> OllamaAdapterMock => _factory.OllamaAdapterMock;
+    protected FakeOllamaAdapter Ollama => _factory.Ollama;
 
     public virtual async Task InitializeAsync()
     {

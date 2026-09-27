@@ -13,7 +13,7 @@ Core stack:
 - PostgreSQL + pgvector for similarity search
 - Ollama for embeddings (via typed HttpClient adapter)
 - Injectio for source-generated DI registration (`[RegisterScoped]`)
-- xUnit + Moq + Testcontainers for testing
+- xUnit + Testcontainers for testing. The test host disables dynamic code, so fakes are hand-written (`FakeOllamaAdapter`), not Moq.
 - System.Text.Json source generation for AOT-safe (de)serialization
 
 ## Getting Started (Build, Run, Docker)
@@ -80,6 +80,15 @@ The API project uses Native AOT:
 - `compose.yaml`, `postgres/init/`, `Ollama/`, root-level Dockerfiles
 
 All new business logic goes under a feature folder following the above layout.
+
+## Git
+
+Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for every commit.
+
+- Subject line: `type(scope): imperative summary`. No trailing period. Scope is optional; use one when the change is local (`aot`, `dapper`, `expertise`, `api`).
+- Types: `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+- A body, when the subject is not enough, says why. Breaking changes use `type!:` or a `BREAKING CHANGE:` footer.
+- Branch names use the same type prefix: `type/short-description` (for example `chore/aot-tests`).
 
 ## Coding Conventions
 
@@ -258,12 +267,25 @@ Only the embedding path is currently implemented.
 - Standard: `dotnet test Mentekus.Api.Tests`
 - Inside the Grok TUI you may also have access to a `run_test` helper.
 
+### Native AOT behavior in the test host
+`dotnet test` hosts the API with `WebApplicationFactory`, so `Mentekus.Api.runtimeconfig.json` is not applied. The test project sets the same switches Native AOT sets for the app:
+
+- `DynamicCodeSupport=false` (`RuntimeFeature.IsDynamicCodeSupported` is false). Reflection.Emit and other runtime code generation throw, the same as a published Native AOT binary.
+- `JsonSerializerIsReflectionEnabledByDefault=false`. JSON that is not registered on `AppJsonSerializerContext` throws. `PostAsJsonAsync` / `ReadFromJsonAsync` in tests must pass `AppJsonSerializerContext.Default.<Type>`.
+- `System.Linq.Expressions.CanEmitObjectArrayDelegate=false`.
+
+Do not add Moq, Castle DynamicProxy, or any other library that generates code at runtime. Replace services with a hand-written fake (`FakeOllamaAdapter`).
+
+The test project declares `[assembly: DapperAot]`. Dapper calls in tests are intercepted the same way as the API. Do not use `CommandDefinition`.
+
+`Mentekus.Api` treats Native AOT and trim warnings as errors (`IL3050` and the `IL2xxx` trim codes). `dotnet test` builds that project, so a new dynamic-code call fails the test run before any test executes. Test-only reflection (for example invoking a private helper) stays in the test project, which is not published with Native AOT.
+
 ### Unit vs Integration Tests
-- Pure logic or adapter tests (no Dapper/pgvector) → unit tests with Moq (see [OllamaAdapterTests.cs](Mentekus.Api.Tests/OllamaAdapterTests.cs)).
+- Pure logic or adapter tests (no Dapper/pgvector) → unit tests with hand-written fakes (see [OllamaAdapterTests.cs](Mentekus.Api.Tests/OllamaAdapterTests.cs)).
 - Anything touching the database, vectors, or Dapper.AOT compiled queries → **integration tests only**.
 
 ### Integration Test Pattern (Testcontainers + WebApplicationFactory)
-Use the provided base classes. They give you a real Postgres + pgvector container + the ability to swap the real `IOllamaAdapter` for a mock.
+Use the provided base classes. They give you a real Postgres + pgvector container and replace `IOllamaAdapter` with `FakeOllamaAdapter`.
 
 Accurate minimal example (reflects current [IntegrationTestBase.cs](Mentekus.Api.Tests/Integration/IntegrationTestBase.cs) + factory + tests):
 
@@ -274,18 +296,20 @@ public class QuestionEndpointsTests : IntegrationTestBase
     public async Task Ask_ReturnsOk_AndSavesToDatabase()
     {
         // 1. Add a user first (question endpoints require one)
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Test User", "test@example.com"));
+        await Client.PostAsJsonAsync(
+            "/user/add",
+            new UserAddRequest("Test User", "test@example.com"),
+            AppJsonSerializerContext.Default.UserAddRequest);
 
         var questionText = "What is Native AOT?";
         var expectedEmbedding = new[] { 0.1f, 0.2f, 0.3f };
 
-        OllamaAdapterMock
-            .Setup(a => a.EmbedAsync(questionText, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(expectedEmbedding);
+        Ollama.Embed(questionText, expectedEmbedding);
 
         var request = new QuestionAskRequest(questionText, "test@example.com");
 
-        var response = await Client.PostAsJsonAsync("/question/ask", request);
+        var response = await Client.PostAsJsonAsync(
+            "/question/ask", request, AppJsonSerializerContext.Default.QuestionAskRequest);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         // ...
@@ -304,7 +328,7 @@ public class IntegrationTestBase : IAsyncLifetime
     private TestWebApplicationFactory _factory = null!;
 
     protected HttpClient Client { get; private set; } = null!;
-    protected Mock<IOllamaAdapter> OllamaAdapterMock => _factory.OllamaAdapterMock;
+    protected FakeOllamaAdapter Ollama => _factory.Ollama;
 
     public virtual async Task InitializeAsync()
     {
@@ -326,13 +350,15 @@ public class IntegrationTestBase : IAsyncLifetime
 }
 ```
 
-Factory overrides the connection string and replaces the real adapter with the mock.
+Factory overrides the connection string and replaces the real adapter with `FakeOllamaAdapter`.
 
-Always prefer `AppJsonSerializerContext.Default.XXX` when reading responses in tests for realism.
+Always pass `AppJsonSerializerContext.Default.XXX` to `PostAsJsonAsync` and `ReadFromJsonAsync`. Reflection JSON is disabled in this process, so a call without `JsonTypeInfo` throws even when the server context already knows the type.
 
 ## Common Pitfalls & Gotchas
 
-- Forgetting to add the new request/response type to `AppJsonSerializerContext` → runtime or AOT trim errors / deserialization failures.
+- Forgetting to add the new request/response type to `AppJsonSerializerContext` → the test host throws because reflection JSON is disabled. The same call fails in the Native AOT publish.
+- Introducing Moq or any `Reflection.Emit` helper. `DynamicCodeSupport` is false in the test project; proxy generation throws `PlatformNotSupportedException`.
+- Calling `PostAsJsonAsync` / `ReadFromJsonAsync` without `AppJsonSerializerContext`.
 - Using `docker-compose` (v1) instead of `docker compose` and `compose.yaml`.
 - Writing SQL queries directly in service files instead of `*Sql.cs`.
 - Wrong raw-string formatting for SQL (the closing `""";` indent controls dedent — misalignment produces ugly or broken SQL at runtime).

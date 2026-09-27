@@ -6,7 +6,6 @@ using Mentekus.Api.Features.User;
 using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Serialization;
 using Microsoft.AspNetCore.Mvc;
-using Moq;
 using Xunit;
 
 namespace Mentekus.Api.Tests.Integration;
@@ -20,11 +19,11 @@ public class UserEndpointsTests : IntegrationTestBase
         var request = new UserAddRequest("John Doe", "john@example.com");
 
         // Act
-        var response = await Client.PostAsJsonAsync("/user/add", request);
+        var response = await Client.PostAsJsonAsync("/user/add", request, AppJsonSerializerContext.Default.UserAddRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await response.Content.ReadFromJsonAsync<UserAddResponse>();
+        var result = await response.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.UserAddResponse);
         Assert.NotNull(result);
         Assert.Equal(request.Name, result.Name);
         Assert.Equal(request.Email, result.Email);
@@ -36,11 +35,11 @@ public class UserEndpointsTests : IntegrationTestBase
     {
         // Arrange
         var request = new UserAddRequest("John Doe", "john@example.com");
-        await Client.PostAsJsonAsync("/user/add", request);
+        await Client.PostAsJsonAsync("/user/add", request, AppJsonSerializerContext.Default.UserAddRequest);
 
         // Act - same email, different case
         var duplicateRequest = new UserAddRequest("Jane Doe", "JOHN@example.com");
-        var response = await Client.PostAsJsonAsync("/user/add", duplicateRequest);
+        var response = await Client.PostAsJsonAsync("/user/add", duplicateRequest, AppJsonSerializerContext.Default.UserAddRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -53,10 +52,10 @@ public class UserEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task GetUserExpertiseProfile_ReturnsOk_WithTopicsAfterContribution()
     {
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Prof User", "prof@example.com"));
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Prof User", "prof@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
 
-        OllamaAdapterMock.Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Enumerable.Repeat(0.2f, 1024).ToArray());
-        OllamaAdapterMock.Setup(a => a.GenerateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("[\"topicx\", \"topicy\"]");
+        Ollama.EmbedAny(Enumerable.Repeat(0.2f, 1024).ToArray());
+        Ollama.GenerateAny("[\"topicx\", \"topicy\"]");
 
         await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("some prof doc", "prof@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
 
@@ -71,7 +70,7 @@ public class UserEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task UpdateUserPreferences_AllowsTogglingRoutingFlag()
     {
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Pref User", "pref@example.com"));
+        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Pref User", "pref@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
 
         var updateReq = new UserPreferencesUpdateRequest(ProfileVisible: true, AllowRouting: false);
         var updResp = await Client.PostAsJsonAsync("/user/pref@example.com/preferences", updateReq, AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
@@ -80,7 +79,7 @@ public class UserEndpointsTests : IntegrationTestBase
         Assert.Contains("Preferences updated", msg);
 
         // verify by routing (should exclude)
-        OllamaAdapterMock.Setup(a => a.EmbedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Enumerable.Repeat(0.3f, 1024).ToArray());
+        Ollama.EmbedAny(Enumerable.Repeat(0.3f, 1024).ToArray());
         await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("pref doc for route test", "pref@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
 
         var routeResp = await Client.PostAsJsonAsync("/expertise/route", new ExpertiseRouteRequest("pref doc for route test", 3), AppJsonSerializerContext.Default.ExpertiseRouteRequest);

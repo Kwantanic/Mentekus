@@ -3,8 +3,6 @@ using System.Net.Http.Json;
 using Mentekus.Api.Serialization;
 using Mentekus.Api.Shared.Adapters;
 using Microsoft.Extensions.Options;
-using Moq;
-using Moq.Protected;
 using Xunit;
 
 namespace Mentekus.Api.Tests;
@@ -16,21 +14,13 @@ public class OllamaAdapterTests
     {
         // Arrange
         var expectedResponse = new OllamaEmbedResponse(new[] { new[] { 0.1f, 0.2f } });
-        var handlerMock = new Mock<HttpMessageHandler>();
-        handlerMock
-            .Protected()
-            .Setup<Task<HttpResponseMessage>>(
-                "SendAsync",
-                ItExpr.IsAny<HttpRequestMessage>(),
-                ItExpr.IsAny<CancellationToken>()
-            )
-            .ReturnsAsync(new HttpResponseMessage
-            {
-                StatusCode = HttpStatusCode.OK,
-                Content = JsonContent.Create(expectedResponse, AppJsonSerializerContext.Default.OllamaEmbedResponse)
-            });
+        var handler = new StubHandler(_ => Task.FromResult(new HttpResponseMessage
+        {
+            StatusCode = HttpStatusCode.OK,
+            Content = JsonContent.Create(expectedResponse, AppJsonSerializerContext.Default.OllamaEmbedResponse)
+        }));
 
-        var httpClient = new HttpClient(handlerMock.Object)
+        var httpClient = new HttpClient(handler)
         {
             BaseAddress = new Uri("http://localhost:11434")
         };
@@ -43,5 +33,11 @@ public class OllamaAdapterTests
         Assert.NotNull(result);
         Assert.Equal(2, result.Length);
         Assert.Equal(0.1f, result[0]);
+    }
+
+    private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            send(request);
     }
 }

@@ -4,7 +4,6 @@ using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Features.User;
 using Mentekus.Api.Shared.Adapters;
 using Microsoft.Extensions.DependencyInjection;
-using Moq;
 using Pgvector;
 using System.Linq;
 using System.Reflection;
@@ -82,8 +81,7 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
         var userId = await userService.AddUserAsync("Graph User", "graph@example.com");
 
         var expertise = sp.GetRequiredService<IExpertiseService>();
-        OllamaAdapterMock.Setup(a => a.GenerateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("[\"dotnet aot\", \"pgvector similarity\", \"vector search\"]");
+        Ollama.GenerateAny("[\"dotnet aot\", \"pgvector similarity\", \"vector search\"]");
 
         var vec = new float[1024];
         vec[0] = 0.42f;
@@ -106,15 +104,13 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
         using var scope = Services.CreateScope();
         var sp = scope.ServiceProvider;
         var expertise = sp.GetRequiredService<IExpertiseService>();
-        OllamaAdapterMock.Setup(a => a.GenerateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("not a json array at all!!! { foo: bar }");
+        Ollama.GenerateAny("not a json array at all!!! { foo: bar }");
 
         var topics = await expertise.ExtractTopicsAsync("some contribution text here about csharp", "Answer");
         Assert.Empty(topics); // defensive parse fallback
 
         // Also test good case
-        OllamaAdapterMock.Setup(a => a.GenerateAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("  [\"  native aot  \", \"  embeddings  \"]  ");
+        Ollama.GenerateAny("  [\"  native aot  \", \"  embeddings  \"]  ");
         var good = await expertise.ExtractTopicsAsync("text", ExpertiseSql.DocumentSourceType);
         Assert.Equal(2, good.Length);
         Assert.Equal("native aot", good[0]);
