@@ -14,16 +14,12 @@ public static class UserSql
         WHERE Email = CAST(@Email AS citext)
         """;
 
-    public const string InsertUser = """
-        INSERT INTO Users (Id, Name, Email) 
-        VALUES (@Id, @Name, @Email)
-        """;
-
     public const string UpdateUserPreferences = """
-        UPDATE Users 
-        SET 
+        UPDATE Users
+        SET
             ProfileVisible = COALESCE(@ProfileVisible, ProfileVisible),
             AllowRouting = COALESCE(@AllowRouting, AllowRouting)
         WHERE Id = @UserId
+        RETURNING ProfileVisible, AllowRouting
         """;
 }

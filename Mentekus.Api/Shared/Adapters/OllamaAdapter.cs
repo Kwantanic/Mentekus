@@ -3,7 +3,7 @@ using Microsoft.Extensions.Options;
 
 namespace Mentekus.Api.Shared.Adapters;
 
-[RegisterScoped(ServiceType = typeof(IOllamaAdapter))]
+// Registered by services.AddHttpClient, not Injectio. The typed client is what supplies HttpClient.
 public class OllamaAdapter(HttpClient httpClient, IOptions<OllamaOptions> options) : IOllamaAdapter
 {
     public async Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default)

@@ -16,8 +16,6 @@ public class GlobalExceptionHandler(
         Exception exception,
         CancellationToken cancellationToken)
     {
-        logger.LogError(exception, "An unhandled exception occurred: {Message}", exception.Message);
-
         var statusCode = exception switch
         {
             ValidationException => StatusCodes.Status400BadRequest,
@@ -31,6 +29,13 @@ public class GlobalExceptionHandler(
             OperationCanceledException => 499, // Client Closed Request
             _ => StatusCodes.Status500InternalServerError
         };
+
+        if (statusCode == StatusCodes.Status503ServiceUnavailable)
+            logger.LogWarning(exception, "Embedding request failed: {Message}", exception.Message);
+        else if (statusCode >= StatusCodes.Status500InternalServerError)
+            logger.LogError(exception, "Request failed: {Message}", exception.Message);
+        else
+            logger.LogInformation("Request rejected with status {StatusCode}: {Message}", statusCode, exception.Message);
 
         httpContext.Response.StatusCode = statusCode;
 

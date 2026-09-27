@@ -1,5 +1,6 @@
 using Dapper;
 using Mentekus.Api.Features.User.Entities;
+using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Npgsql;
 
 namespace Mentekus.Api.Features.User;
@@ -25,21 +26,14 @@ public class UserService(NpgsqlDataSource dataSource) : IUserService
         return row == null ? null : new UserAccess(row.Id, row.Email, row.ProfileVisible);
     }
 
-    public async Task<Guid> AddUserAsync(string name, string email, CancellationToken cancellationToken = default)
-    {
-        var id = Guid.NewGuid();
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(
-            UserSql.InsertUser,
-            new { Id = id, Name = name, Email = email });
-        return id;
-    }
-
-    public async Task UpdateUserPreferencesAsync(Guid userId, bool? profileVisible = null, bool? allowRouting = null, CancellationToken cancellationToken = default)
+    public async Task<UserPreferences> UpdateUserPreferencesAsync(Guid userId, bool? profileVisible = null, bool? allowRouting = null, CancellationToken cancellationToken = default)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await connection.ExecuteAsync(
+        var updated = await connection.QuerySingleOrDefaultAsync<UserPreferences>(
             UserSql.UpdateUserPreferences,
             new { UserId = userId, ProfileVisible = profileVisible, AllowRouting = allowRouting });
+        if (updated == null)
+            throw new NotFoundException("User not found.");
+        return updated;
     }
 }

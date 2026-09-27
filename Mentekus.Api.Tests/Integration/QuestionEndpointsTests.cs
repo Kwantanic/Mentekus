@@ -8,6 +8,7 @@ using Mentekus.Api.Features.Question;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
+using Mentekus.Api.Features.User.Requests;
 using Npgsql;
 using Mentekus.Api.Serialization;
 using Microsoft.AspNetCore.Mvc;
@@ -186,7 +187,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task ExpertiseDocument_Ingest_UpdatesExpertise_AndReturnsMessage()
+    public async Task ExpertiseDocument_Ingest_UpdatesExpertise_AndReturnsProfile()
     {
         await Client.RegisterAndSignInAsync("Doc User", "docuser@example.com");
 
@@ -200,8 +201,11 @@ public class QuestionEndpointsTests : IntegrationTestBase
             AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        var msg = await resp.Content.ReadAsStringAsync();
-        Assert.Contains("Document ingested. Expertise updated.", msg);
+        var profile = await resp.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.UserExpertiseProfile);
+        Assert.NotNull(profile);
+        Assert.Equal("Doc User", profile.Name);
+        Assert.Equal("docuser@example.com", profile.Email);
+        Assert.NotNull(profile.LastUpdated);
 
         using var scope = Services.CreateScope();
         await using var conn = await scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
@@ -353,6 +357,24 @@ public class QuestionEndpointsTests : IntegrationTestBase
         var ownHit = Assert.Single(ownResults, result => result.Text == question);
         Assert.Equal("hidden-asker@example.com", ownHit.AskedByEmail);
         Assert.NotNull(ownHit.AskedByUserId);
+    }
+
+    [Fact]
+    public async Task Search_WhenEmbeddingFails_ReturnsServiceUnavailable()
+    {
+        await Client.RegisterAndSignInAsync("Search User", "search-fail@example.com");
+
+        var similarity = await Client.PostJsonAsync(
+            "/question/similarity",
+            new QuestionSimilarityRequest("no embedding", 5),
+            AppJsonSerializerContext.Default.QuestionSimilarityRequest);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, similarity.StatusCode);
+
+        var route = await Client.PostJsonAsync(
+            "/expertise/route",
+            new ExpertiseRouteRequest("no embedding", 5),
+            AppJsonSerializerContext.Default.ExpertiseRouteRequest);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, route.StatusCode);
     }
 
     private async Task<SessionClient> SeedAsync(string name, string email, string document)

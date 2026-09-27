@@ -3,6 +3,7 @@ using System.Text.Json;
 using Dapper;
 using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
+using Mentekus.Api.Shared;
 using Mentekus.Api.Shared.Adapters;
 using Npgsql;
 using Pgvector;
@@ -79,7 +80,7 @@ public class ExpertiseService(
         try
         {
             await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-            foreach (var raw in topics.Take(5))
+            foreach (var raw in topics.Take(TopicLimit(sourceType)))
             {
                 var topicName = raw.Trim().ToLowerInvariant();
                 if (string.IsNullOrWhiteSpace(topicName))
@@ -129,7 +130,7 @@ public class ExpertiseService(
             row.LastExpertiseUpdate);
     }
 
-    public async Task<string> IngestDocumentAsync(string text, Guid userId, CancellationToken cancellationToken = default)
+    public async Task<UserExpertiseProfile> IngestDocumentAsync(string text, Guid userId, CancellationToken cancellationToken = default)
     {
         var embedding = await ollamaAdapter.EmbedAsync(text, cancellationToken);
         if (embedding == null || embedding.Length == 0)
@@ -137,12 +138,15 @@ public class ExpertiseService(
 
         EmbeddingSize.Require(embedding);
         await UpdateFromContributionAsync(userId, embedding, text, ExpertiseSql.DocumentSourceType, cancellationToken: cancellationToken);
-        return "Document ingested. Expertise updated.";
+        var profile = await GetUserExpertiseAsync(userId, cancellationToken);
+        if (profile == null)
+            throw new NotFoundException("User not found.");
+        return profile;
     }
 
     public async Task<List<ExpertiseRouteMatch>> RouteExpertsAsync(string query, int limit, CancellationToken cancellationToken = default)
     {
-        limit = Math.Clamp(limit <= 0 ? 10 : limit, 1, 50);
+        limit = ResultLimits.Clamp(limit, 10);
 
         var embeddingTask = ollamaAdapter.EmbedAsync(query, cancellationToken);
         var topicsTask = ExtractTopicsForRoutingAsync(query, cancellationToken);
@@ -150,7 +154,9 @@ public class ExpertiseService(
 
         var embedding = await embeddingTask;
         if (embedding == null || embedding.Length == 0)
-            return [];
+            throw new EmbeddingFailedException("Failed to generate embedding for the routing query.");
+
+        EmbeddingSize.Require(embedding);
 
         var queryTopics = await topicsTask;
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -268,6 +274,9 @@ public class ExpertiseService(
 
         return blended;
     }
+
+    private static int TopicLimit(string sourceType) =>
+        sourceType == ExpertiseSql.DocumentSourceType ? 8 : 5;
 
     private static float GetAlphaForSource(string sourceType) => sourceType switch
     {

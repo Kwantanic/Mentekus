@@ -7,7 +7,8 @@ using Mentekus.Api.Features.Expertise.Requests;
 using Mentekus.Api.Features.Question;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
-using Mentekus.Api.Features.User;
+using Mentekus.Api.Features.User.Entities;
+using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Shared.Adapters;
 using Pgvector;
 
@@ -33,7 +34,9 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(AuthUser))]
 [JsonSerializable(typeof(AuthSessionResponse))]
 [JsonSerializable(typeof(XsrfTokenResponse))]
+[JsonSerializable(typeof(AuthSignedOut))]
 [JsonSerializable(typeof(UserPreferencesUpdateRequest))]
+[JsonSerializable(typeof(UserPreferences))]
 [JsonSerializable(typeof(UserExpertiseProfile))]
 [JsonSerializable(typeof(List<UserExpertiseProfile>))]
 [JsonSerializable(typeof(ExpertiseDocumentIngestRequest))]

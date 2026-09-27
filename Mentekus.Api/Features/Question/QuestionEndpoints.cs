@@ -45,9 +45,8 @@ public static class QuestionEndpoints
         ClaimsPrincipal user,
         CancellationToken cancellationToken)
     {
-        var limit = Math.Clamp(request.Limit <= 0 ? 5 : request.Limit, 1, 50);
         var similarQuestions = await questionService.GetSimilarQuestionsAsync(
-            request.Text, limit, CurrentUser.GetId(user), cancellationToken);
+            request.Text, request.Limit, CurrentUser.GetId(user), cancellationToken);
 
         return TypedResults.Ok(similarQuestions);
     }

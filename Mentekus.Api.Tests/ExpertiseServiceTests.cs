@@ -1,7 +1,7 @@
 using Dapper;
+using Mentekus.Api.Features.Auth;
 using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Expertise.Entities;
-using Mentekus.Api.Features.User;
 using Mentekus.Api.Shared.Adapters;
 using Microsoft.Extensions.DependencyInjection;
 using Pgvector;
@@ -59,13 +59,13 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
     {
         using var scope = Services.CreateScope();
         var sp = scope.ServiceProvider;
-        var userService = sp.GetRequiredService<IUserService>();
-        var userId = await userService.AddUserAsync("Blend User", "blend@example.com");
+        var user = await sp.GetRequiredService<IAuthService>().RegisterAsync("Blend User", "blend@example.com", "test-password");
+        var userId = user.Id;
 
         var expertise = sp.GetRequiredService<IExpertiseService>();
         var vec = Enumerable.Range(0, 1024).Select(i => i == 5 ? 0.9f : 0.01f).ToArray();
 
-        await expertise.UpdateVectorOnlyFromContributionAsync(userId, vec, "Answer");
+        await expertise.UpdateVectorOnlyFromContributionAsync(userId, vec, ExpertiseSql.AnswerSourceType);
 
         var profile = await expertise.GetUserExpertiseAsync(userId);
         Assert.NotNull(profile);
@@ -77,8 +77,8 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
     {
         using var scope = Services.CreateScope();
         var sp = scope.ServiceProvider;
-        var userService = sp.GetRequiredService<IUserService>();
-        var userId = await userService.AddUserAsync("Graph User", "graph@example.com");
+        var user = await sp.GetRequiredService<IAuthService>().RegisterAsync("Graph User", "graph@example.com", "test-password");
+        var userId = user.Id;
 
         var expertise = sp.GetRequiredService<IExpertiseService>();
         Ollama.GenerateAny("[\"dotnet aot\", \"pgvector similarity\", \"vector search\"]");
@@ -86,7 +86,7 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
         var vec = new float[1024];
         vec[0] = 0.42f;
 
-        await expertise.UpdateFromContributionAsync(userId, vec, "Senior engineer experienced in Native AOT and pgvector for semantic search in .NET.", "Document");
+        await expertise.UpdateFromContributionAsync(userId, vec, "Senior engineer experienced in Native AOT and pgvector for semantic search in .NET.", ExpertiseSql.DocumentSourceType);
         await WaitForTopicsAsync();
 
         var profile = await expertise.GetUserExpertiseAsync(userId);
@@ -107,7 +107,7 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
         var expertise = sp.GetRequiredService<IExpertiseService>();
         Ollama.GenerateAny("not a json array at all!!! { foo: bar }");
 
-        var topics = await expertise.ExtractTopicsAsync("some contribution text here about csharp", "Answer");
+        var topics = await expertise.ExtractTopicsAsync("some contribution text here about csharp", ExpertiseSql.AnswerSourceType);
         Assert.Empty(topics); // defensive parse fallback
 
         // Also test good case
@@ -119,7 +119,7 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
 
         Ollama.GenerateAny("[\"format strings\"]");
         const string braced = "How do I use string.Format {0} and {name}?";
-        var withBraces = await expertise.ExtractTopicsAsync(braced, "Answer");
+        var withBraces = await expertise.ExtractTopicsAsync(braced, ExpertiseSql.AnswerSourceType);
         Assert.Equal(["format strings"], withBraces);
         Assert.Contains(Ollama.GenerateCalls, prompt => prompt.Contains("{0}", StringComparison.Ordinal) && prompt.Contains("{name}", StringComparison.Ordinal));
     }

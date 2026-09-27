@@ -55,10 +55,10 @@ public static class AuthEndpoints
         return TypedResults.Ok(new AuthSessionResponse(user.Id, user.Name, user.Email, IssueXsrfToken(httpContext, antiforgery)));
     }
 
-    private static async Task<Ok<string>> HandleLogoutAsync(HttpContext httpContext)
+    private static async Task<Ok<AuthSignedOut>> HandleLogoutAsync(HttpContext httpContext)
     {
         await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        return TypedResults.Ok("Signed out.");
+        return TypedResults.Ok(new AuthSignedOut());
     }
 
     private static async Task<Ok<AuthUser>> HandleMeAsync(

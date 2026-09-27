@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Features.Expertise.Requests;
-using Mentekus.Api.Features.User;
+using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Serialization;
 using Xunit;
 
@@ -36,8 +36,10 @@ public class UserEndpointsTests : IntegrationTestBase
         var updateReq = new UserPreferencesUpdateRequest(ProfileVisible: true, AllowRouting: false);
         var updResp = await Client.PostJsonAsync("/user/pref@example.com/preferences", updateReq, AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
         Assert.Equal(HttpStatusCode.OK, updResp.StatusCode);
-        var msg = await updResp.Content.ReadAsStringAsync();
-        Assert.Contains("Preferences updated", msg);
+        var prefs = await updResp.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.UserPreferences);
+        Assert.NotNull(prefs);
+        Assert.True(prefs.ProfileVisible);
+        Assert.False(prefs.AllowRouting);
 
         Ollama.EmbedAny(Enumerable.Repeat(0.3f, 1024).ToArray());
         await Client.PostJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("pref doc for route test"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);

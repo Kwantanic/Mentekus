@@ -19,7 +19,7 @@ public interface IExpertiseService
 
     Task<UserExpertiseProfile?> GetUserExpertiseAsync(Guid userId, CancellationToken cancellationToken = default);
 
-    Task<string> IngestDocumentAsync(string text, Guid userId, CancellationToken cancellationToken = default);
+    Task<UserExpertiseProfile> IngestDocumentAsync(string text, Guid userId, CancellationToken cancellationToken = default);
 
     Task<List<ExpertiseRouteMatch>> RouteExpertsAsync(string query, int limit, CancellationToken cancellationToken = default);
 }

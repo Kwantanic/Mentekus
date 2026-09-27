@@ -110,7 +110,7 @@ X-XSRF-TOKEN: {{xsrf}}
 GET {{Mentekus.Api_HostAddress}}/question/{{questionId}}
 
 ###
-# Ingest a document for the signed-in user
+# Ingest a document for the signed-in user. The response is that user's expertise profile.
 
 POST {{Mentekus.Api_HostAddress}}/expertise/document
 Content-Type: application/json
@@ -139,7 +139,7 @@ X-XSRF-TOKEN: {{xsrf}}
 GET {{Mentekus.Api_HostAddress}}/user/ada@example.com/expertise
 
 ###
-# Preferences can be changed only for the signed-in user
+# Preferences can be changed only for the signed-in user. The response is the stored flags.
 
 POST {{Mentekus.Api_HostAddress}}/user/ada@example.com/preferences
 Content-Type: application/json
@@ -151,6 +151,8 @@ X-XSRF-TOKEN: {{xsrf}}
 }
 
 ###
+# Ends the session. The response body is an empty JSON object.
+
 POST {{Mentekus.Api_HostAddress}}/auth/logout
 Content-Type: application/json
 X-XSRF-TOKEN: {{xsrf}}

@@ -2,6 +2,7 @@ using Dapper;
 using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
+using Mentekus.Api.Shared;
 using Mentekus.Api.Shared.Adapters;
 using Npgsql;
 using Pgvector;
@@ -60,9 +61,12 @@ public class QuestionService(
 
     public async Task<List<QuestionSimilarity>> GetSimilarQuestionsAsync(string text, int limit, Guid callerId, CancellationToken cancellationToken = default)
     {
+        limit = ResultLimits.Clamp(limit, 5);
         var embedding = await ollamaAdapter.EmbedAsync(text, cancellationToken);
         if (embedding == null || embedding.Length == 0)
-            return [];
+            throw new EmbeddingFailedException("Failed to generate embedding for the similarity search.");
+
+        EmbeddingSize.Require(embedding);
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var result = await connection.QueryAsync<QuestionSimilarity>(
