@@ -8,5 +8,4 @@ public sealed record QuestionSimilarityRequest(
 
 public sealed record QuestionAnswerRequest(
     [property: JsonRequired] Guid QuestionId,
-    [property: JsonRequired] string Answer,
-    [property: JsonRequired] string Email);
+    [property: JsonRequired] string Answer);

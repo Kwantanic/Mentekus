@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Mentekus.Api.Features.User.Entities;
 
 namespace Mentekus.Api.Features.User;
 
@@ -10,7 +11,16 @@ public class UserService(IDbConnection connection) : IUserService
     {
         return await connection.ExecuteScalarAsync<Guid?>(
             UserSql.GetUserIdByEmail,
-            new { Email = email });
+            new { Email = email.Trim() });
+    }
+
+    public async Task<UserAccess?> GetUserAccessByEmailAsync(string email, CancellationToken cancellationToken = default)
+    {
+        var row = await connection.QuerySingleOrDefaultAsync<UserAccessRow>(
+            UserSql.GetUserAccessByEmail,
+            new { Email = email.Trim() });
+
+        return row == null ? null : new UserAccess(row.Id, row.Email, row.ProfileVisible);
     }
 
     public async Task<Guid> AddUserAsync(string name, string email, CancellationToken cancellationToken = default)

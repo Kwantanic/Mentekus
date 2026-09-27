@@ -12,14 +12,12 @@ public class ErrorHandlingTests : IntegrationTestBase
     [Fact]
     public async Task MalformedJson_ReturnsFriendlyError()
     {
-        // Arrange
-        var malformedJson = "{ \"Question\": \"What is AOT?\", \"Email\": \"test@example.com\" "; // Missing closing brace
+        await Client.RegisterAndSignInAsync("Json User", "json@example.com");
+        var malformedJson = "{ \"question\": \"What is AOT?\" ";
         var content = new StringContent(malformedJson, Encoding.UTF8, "application/json");
 
-        // Act
-        var response = await Client.PostAsync("/question/ask", content);
+        var response = await Client.PostRawAsync("/question/ask", content);
 
-        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
         Assert.NotNull(problem);
@@ -30,14 +28,12 @@ public class ErrorHandlingTests : IntegrationTestBase
     [Fact]
     public async Task MissingNonNullableProperty_ReturnsFriendlyError()
     {
-        // Arrange
-        var missingPropertyJson = "{ \"Email\": \"test@example.com\" }"; // Question is missing
+        await Client.RegisterAndSignInAsync("Json User", "json-missing@example.com");
+        var missingPropertyJson = "{ }";
         var content = new StringContent(missingPropertyJson, Encoding.UTF8, "application/json");
 
-        // Act
-        var response = await Client.PostAsync("/question/ask", content);
+        var response = await Client.PostRawAsync("/question/ask", content);
 
-        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
         Assert.NotNull(problem);
@@ -48,17 +44,15 @@ public class ErrorHandlingTests : IntegrationTestBase
     [Fact]
     public async Task MalformedJson_ValueMissing_ReturnsFriendlyError()
     {
-        // Arrange
-        var malformedJson = "{ \"Question\": \"What is AOT?\", \"Email\": }"; // Missing value
+        await Client.RegisterAndSignInAsync("Json User", "json-value@example.com");
+        var malformedJson = "{ \"question\": }";
         var content = new StringContent(malformedJson, Encoding.UTF8, "application/json");
 
-        // Act
-        var response = await Client.PostAsync("/question/ask", content);
+        var response = await Client.PostRawAsync("/question/ask", content);
 
-        // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
         Assert.NotNull(problem);
-        Assert.Equal("request.Email is malformed or missing", problem.Detail);
+        Assert.Equal("request.question is malformed or missing", problem.Detail);
     }
 }

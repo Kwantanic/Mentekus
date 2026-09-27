@@ -15,6 +15,7 @@
 
     <ItemGroup>
         <EmbeddedResource Include="Shared\Database\Migrations\*.sql"/>
+        <InternalsVisibleTo Include="Mentekus.Api.Tests"/>
     </ItemGroup>
 
     <ItemGroup>

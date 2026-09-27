@@ -1,13 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Threading.Tasks;
 using Dapper;
 using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Expertise.Entities;
+using Mentekus.Api.Features.Expertise.Requests;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
-using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,35 +19,24 @@ public class QuestionEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Ask_ReturnsOk_AndSavesToDatabase()
     {
-        // 1. Add user
-        var userRequest = new UserAddRequest("Test User", "test@example.com");
-        await Client.PostAsJsonAsync("/user/add", userRequest, AppJsonSerializerContext.Default.UserAddRequest);
+        await Client.RegisterAndSignInAsync("Test User", "test@example.com");
 
-        // 2. Ask question
         var questionText = "What is Native AOT?";
         var expectedEmbedding = Enumerable.Repeat(0.1f, 1024).ToArray();
-
         Ollama.EmbedAny(expectedEmbedding);
 
-        var request = new QuestionAskRequest(questionText, "test@example.com");
+        var response = await Client.PostJsonAsync("/question/ask", new QuestionAskRequest(questionText), AppJsonSerializerContext.Default.QuestionAskRequest);
 
-        // Act
-        var response = await Client.PostAsJsonAsync("/question/ask", request, AppJsonSerializerContext.Default.QuestionAskRequest);
-
-        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var content = await response.Content.ReadAsStringAsync();
         Assert.Contains("Question saved (ID:", content);
         Assert.Contains("Embedding length: 1024", content);
-
-        // Verify the mock was called
         Assert.Equal([questionText], Ollama.EmbedCalls);
     }
 
     [Fact]
     public async Task Similarity_ReturnsMostSimilarQuestions()
     {
-        // Arrange
         var question1 = "What is .NET?";
         var embedding1 = Enumerable.Repeat(0.0f, 1024).ToArray(); embedding1[0] = 1.0f;
         var question2 = "What is Java?";
@@ -56,31 +44,27 @@ public class QuestionEndpointsTests : IntegrationTestBase
         var searchQuery = "Tell me about .NET";
         var searchEmbedding = Enumerable.Repeat(0.0f, 1024).ToArray(); searchEmbedding[0] = 0.9f;
 
-        // 0. Add users
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("User One", "one@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("User Two", "two@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
+        await Client.RegisterAndSignInAsync("User One", "one@example.com");
+        var other = CreateSession();
+        await other.RegisterAndSignInAsync("User Two", "two@example.com");
 
         Ollama.Embed(question1, embedding1);
         Ollama.Embed(question2, embedding2);
 
-        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question1, "one@example.com"), AppJsonSerializerContext.Default.QuestionAskRequest);
-        await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest(question2, "two@example.com"), AppJsonSerializerContext.Default.QuestionAskRequest);
+        await Client.PostJsonAsync("/question/ask", new QuestionAskRequest(question1), AppJsonSerializerContext.Default.QuestionAskRequest);
+        await other.PostJsonAsync("/question/ask", new QuestionAskRequest(question2), AppJsonSerializerContext.Default.QuestionAskRequest);
 
         Ollama.Embed(searchQuery, searchEmbedding);
 
-        var similarityRequest = new QuestionSimilarityRequest(searchQuery, 2);
+        var response = await Client.PostJsonAsync("/question/similarity", new QuestionSimilarityRequest(searchQuery, 2), AppJsonSerializerContext.Default.QuestionSimilarityRequest);
 
-        // Act
-        var response = await Client.PostAsJsonAsync("/question/similarity", similarityRequest, AppJsonSerializerContext.Default.QuestionSimilarityRequest);
-
-        // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var results = await response.Content.ReadFromJsonAsync<List<QuestionSimilarity>>(
             AppJsonSerializerContext.Default.ListQuestionSimilarity);
 
         Assert.NotNull(results);
         Assert.Equal(2, results.Count);
-        Assert.Equal(question1, results[0].Text); // Should be more similar to .NET question
+        Assert.Equal(question1, results[0].Text);
         Assert.Equal("one@example.com", results[0].AskedByEmail);
         Assert.NotEqual(Guid.Empty, results[0].AskedByUserId);
         Assert.Equal("two@example.com", results[1].AskedByEmail);
@@ -89,77 +73,51 @@ public class QuestionEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Ask_ReturnsOk_CaseInsensitiveEmail()
+    public async Task Ask_WithoutAuthentication_ReturnsUnauthorized()
     {
-        // 1. Add user with mixed case
-        var userRequest = new UserAddRequest("Mixed User", "Mixed@Example.Com");
-        await Client.PostAsJsonAsync("/user/add", userRequest, AppJsonSerializerContext.Default.UserAddRequest);
+        var response = await Client.PostJsonAsync("/question/ask", new QuestionAskRequest("Some question"), AppJsonSerializerContext.Default.QuestionAskRequest);
 
-        // 2. Ask question with different case
-        var questionText = "Case sensitivity test";
-        Ollama.EmbedAny(Enumerable.Repeat(0.5f, 1024).ToArray());
-
-        var request = new QuestionAskRequest(questionText, "mixed@example.com");
-
-        // Act
-        var response = await Client.PostAsJsonAsync("/question/ask", request, AppJsonSerializerContext.Default.QuestionAskRequest);
-
-        // Assert
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Ask_UserNotFound_ReturnsNotFound()
-    {
-        // Arrange
-        var request = new QuestionAskRequest("Some question", "nonexistent@example.com");
-
-        // Act
-        var response = await Client.PostAsJsonAsync("/question/ask", request, AppJsonSerializerContext.Default.QuestionAskRequest);
-
-        // Assert
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        var problem =
-            await response.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
         Assert.NotNull(problem);
-        Assert.Contains("not found", problem.Detail);
+        Assert.Equal("Unauthorized", problem.Title);
+        Assert.Contains("Authentication is required.", problem.Detail);
     }
 
     [Fact]
     public async Task Answer_Success_UpdatesVectorAndReturnsOk_BlendingSideEffect()
     {
-        // 1. Add users and a question
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Q Owner", "qowner@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Answerer", "answerer@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
+        await Client.RegisterAndSignInAsync("Q Owner", "qowner@example.com");
+        var answerer = CreateSession();
+        await answerer.RegisterAndSignInAsync("Answerer", "answerer@example.com");
 
         Ollama.Embed("Initial Q", Enumerable.Range(0, 1024).Select(i => 0.01f).ToArray());
-        var askResp = await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest("Initial Q", "qowner@example.com"), AppJsonSerializerContext.Default.QuestionAskRequest);
+        var askResp = await Client.PostJsonAsync("/question/ask", new QuestionAskRequest("Initial Q"), AppJsonSerializerContext.Default.QuestionAskRequest);
         Assert.Equal(HttpStatusCode.OK, askResp.StatusCode);
         var askContent = await askResp.Content.ReadAsStringAsync();
         var qidStr = askContent.Split("ID: ")[1].Split(')')[0];
         var questionId = Guid.Parse(qidStr);
 
-        // 2. Setup for answer embed (1024 dim), generate for topics in update
         var ansEmb = Enumerable.Range(0, 1024).Select(i => i == 0 ? 0.8f : 0.02f).ToArray();
         Ollama.Embed("This is the answer text about AOT.", ansEmb);
         Ollama.GenerateAny("[\"aot\", \"dotnet\"]");
 
-        var ansReq = new QuestionAnswerRequest(questionId, "This is the answer text about AOT.", "answerer@example.com");
-        var ansResponse = await Client.PostAsJsonAsync("/question/answer", ansReq, AppJsonSerializerContext.Default.QuestionAnswerRequest);
+        var ansResponse = await answerer.PostJsonAsync(
+            "/question/answer",
+            new QuestionAnswerRequest(questionId, "This is the answer text about AOT."),
+            AppJsonSerializerContext.Default.QuestionAnswerRequest);
 
         Assert.Equal(HttpStatusCode.OK, ansResponse.StatusCode);
         var ansStr = await ansResponse.Content.ReadAsStringAsync();
         Assert.Contains("Answer recorded", ansStr);
         Assert.Contains("Expertise updated", ansStr);
 
-        // Verify blending side effect via profile (topics) and direct DB for 1024 dim vector
         using var scope = Services.CreateScope();
         var expertise = scope.ServiceProvider.GetRequiredService<IExpertiseService>();
-        var profile = await expertise.GetUserExpertiseAsync((await scope.ServiceProvider.GetRequiredService<Mentekus.Api.Features.User.IUserService>().GetUserIdByEmailAsync("answerer@example.com"))!.Value);
+        var profile = await expertise.GetUserExpertiseAsync((await scope.ServiceProvider.GetRequiredService<IUserService>().GetUserIdByEmailAsync("answerer@example.com"))!.Value);
         Assert.NotNull(profile);
         Assert.Contains("aot", profile.TopTopics);
 
-        // DB check for embedding dim (1024 expected post blend)
         var conn = scope.ServiceProvider.GetRequiredService<System.Data.IDbConnection>();
         var dim = await conn.ExecuteScalarAsync<int>("SELECT vector_dims(ExpertiseEmbedding) FROM Users WHERE LOWER(Email)=LOWER(@e)", new { e = "answerer@example.com" });
         Assert.Equal(1024, dim);
@@ -168,9 +126,11 @@ public class QuestionEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Answer_InvalidQuestionId_Returns404()
     {
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Ans", "ans@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        var badReq = new QuestionAnswerRequest(Guid.NewGuid(), "ans text", "ans@example.com");
-        var resp = await Client.PostAsJsonAsync("/question/answer", badReq, AppJsonSerializerContext.Default.QuestionAnswerRequest);
+        await Client.RegisterAndSignInAsync("Ans", "ans@example.com");
+        var resp = await Client.PostJsonAsync(
+            "/question/answer",
+            new QuestionAnswerRequest(Guid.NewGuid(), "ans text"),
+            AppJsonSerializerContext.Default.QuestionAnswerRequest);
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
         var problem = await resp.Content.ReadFromJsonAsync<ProblemDetails>(AppJsonSerializerContext.Default.ProblemDetails);
         Assert.NotNull(problem);
@@ -180,38 +140,42 @@ public class QuestionEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Answer_GenerateFailure_StillUpdatesVector_NonFatal()
     {
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Q2", "q2@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Ans2", "ans2@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
+        await Client.RegisterAndSignInAsync("Q2", "q2@example.com");
+        var answerer = CreateSession();
+        await answerer.RegisterAndSignInAsync("Ans2", "ans2@example.com");
 
         Ollama.EmbedAny(Enumerable.Range(0, 1024).Select(_ => 0.05f).ToArray());
-        var askR = await Client.PostAsJsonAsync("/question/ask", new QuestionAskRequest("Q2", "q2@example.com"), AppJsonSerializerContext.Default.QuestionAskRequest);
+        var askR = await Client.PostJsonAsync("/question/ask", new QuestionAskRequest("Q2"), AppJsonSerializerContext.Default.QuestionAskRequest);
         var qid = Guid.Parse((await askR.Content.ReadAsStringAsync()).Split("ID: ")[1].Split(')')[0]);
 
-        // Simulate generate (topics) fail, but embed for answer succeeds; vector must update
         Ollama.Embed("failing answer contrib", Enumerable.Range(0, 1024).Select(i => 0.77f).ToArray());
         Ollama.GenerateThrows(_ => true, new Exception("LLM down for generate"));
 
-        var ansReq = new QuestionAnswerRequest(qid, "failing answer contrib", "ans2@example.com");
-        var resp = await Client.PostAsJsonAsync("/question/answer", ansReq, AppJsonSerializerContext.Default.QuestionAnswerRequest);
+        var resp = await answerer.PostJsonAsync(
+            "/question/answer",
+            new QuestionAnswerRequest(qid, "failing answer contrib"),
+            AppJsonSerializerContext.Default.QuestionAnswerRequest);
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
         using var scope = Services.CreateScope();
         var conn = scope.ServiceProvider.GetRequiredService<System.Data.IDbConnection>();
         var dim = await conn.ExecuteScalarAsync<int>("SELECT vector_dims(ExpertiseEmbedding) FROM Users WHERE LOWER(Email) = LOWER(@e)", new { e = "ans2@example.com" });
-        Assert.Equal(1024, dim); // vector updated despite generate fail
+        Assert.Equal(1024, dim);
     }
 
     [Fact]
     public async Task ExpertiseDocument_Ingest_UpdatesExpertise_AndReturnsMessage()
     {
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Doc User", "docuser@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
+        await Client.RegisterAndSignInAsync("Doc User", "docuser@example.com");
 
         var docEmb = Enumerable.Range(0, 1024).Select(i => 0.03f + (i % 10) * 0.001f).ToArray();
         Ollama.Embed("CV text for senior dotnet pgvector role.", docEmb);
         Ollama.GenerateAny("[\"dotnet\", \"pgvector\", \"senior engineer\"]");
 
-        var ingestReq = new ExpertiseDocumentIngestRequest("CV text for senior dotnet pgvector role.", "docuser@example.com");
-        var resp = await Client.PostAsJsonAsync("/expertise/document", ingestReq, AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
+        var resp = await Client.PostJsonAsync(
+            "/expertise/document",
+            new ExpertiseDocumentIngestRequest("CV text for senior dotnet pgvector role."),
+            AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var msg = await resp.Content.ReadAsStringAsync();
@@ -226,18 +190,6 @@ public class QuestionEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task ExpertiseRoute_RanksWithScoreVecSimMatchedTopics_RespectsAllowRoutingFlag()
     {
-        // users (4 routable + 1 filtered to test exclusion + overfetch for hybrid promotion)
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("R1 Expert", "r1@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("R2 Expert", "r2@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("R3 Expert", "r3@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("R4 Expert", "r4@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("NoRoute", "noroute@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-
-        // set one to not allow routing
-        await Client.PostAsJsonAsync("/user/noroute@example.com/preferences", new UserPreferencesUpdateRequest(AllowRouting: false), AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
-
-        // seed distinct embeddings so pure-vec DB order (via <=> ) would be r2 (best), r1, r3, r4 (worst)
-        // but query topics will overlap r4 strongly -> topic bonus promotes r4 in hybrid re-rank (verifies overfetch + re-rank fix)
         var emb1 = new float[1024]; emb1[10] = 0.95f; emb1[20] = 0.8f;
         var emb2 = new float[1024]; emb2[10] = 0.96f; emb2[30] = 0.7f;
         var emb3 = new float[1024]; emb3[10] = 0.80f; emb3[40] = 0.6f;
@@ -249,41 +201,48 @@ public class QuestionEndpointsTests : IntegrationTestBase
             if (t.Contains("r3")) return emb3;
             return emb4;
         });
-        // generate returns topics that strongly match r4's seeded expertise (for promotion test)
         Ollama.GenerateAny("[\"r4-skill\", \"topicx\"]");
 
-        // make docs to trigger blend + topics
-        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("r1 text dotnet pgvector", "r1@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
-        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("r2 text dotnet", "r2@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
-        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("r3 text embeddings", "r3@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
-        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("r4 text r4-skill topicx", "r4@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
+        var r1 = await SeedAsync("R1 Expert", "r1@example.com", "r1 text dotnet pgvector");
+        await SeedAsync("R2 Expert", "r2@example.com", "r2 text dotnet");
+        await SeedAsync("R3 Expert", "r3@example.com", "r3 text embeddings");
+        await SeedAsync("R4 Expert", "r4@example.com", "r4 text r4-skill topicx");
 
-        // route query (topics will boost r4 above pure-vec ordering)
-        var routeReq = new ExpertiseRouteRequest("r4-skill expert topicx", 3);
-        var routeResp = await Client.PostAsJsonAsync("/expertise/route", routeReq, AppJsonSerializerContext.Default.ExpertiseRouteRequest);
+        var blocked = CreateSession();
+        await blocked.RegisterAndSignInAsync("NoRoute", "noroute@example.com");
+        var pref = await blocked.PostJsonAsync(
+            "/user/noroute@example.com/preferences",
+            new UserPreferencesUpdateRequest(AllowRouting: false),
+            AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
+        Assert.Equal(HttpStatusCode.OK, pref.StatusCode);
+
+        var routeResp = await r1.PostJsonAsync("/expertise/route", new ExpertiseRouteRequest("r4-skill expert topicx", 3), AppJsonSerializerContext.Default.ExpertiseRouteRequest);
         Assert.Equal(HttpStatusCode.OK, routeResp.StatusCode);
 
         var matches = await routeResp.Content.ReadFromJsonAsync<List<ExpertiseRouteMatch>>(AppJsonSerializerContext.Default.ListExpertiseRouteMatch);
         Assert.NotNull(matches);
-        Assert.Equal(3, matches.Count); // noroute excluded; 3 routable after limit
+        Assert.Equal(3, matches.Count);
         Assert.All(matches, m => Assert.DoesNotContain("noroute", m.Email));
-        // r4 promoted to top via hybrid (topic bonus overcomes lower pure VecSim)
         Assert.Equal("r4@example.com", matches[0].Email);
         Assert.True(matches[0].Score >= matches[1].Score);
-        Assert.Contains(matches, m => m.MatchedTopics.Length > 0 || m.VecSim > 0); // has some scoring info
+        Assert.Contains(matches, m => m.MatchedTopics.Length > 0 || m.VecSim > 0);
         Assert.All(matches, m => { Assert.True(m.VecSim >= 0 && m.VecSim <= 1.0001); Assert.True(m.Confidence >= 0); });
     }
 
     [Fact]
-    public async Task UserExpertiseProfile_SelfSeesFull_EvenIfNotVisible()
+    public async Task UserExpertiseProfile_SelfSeesFull_HiddenFromOthers()
     {
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Hidden Self", "hidden@example.com"), AppJsonSerializerContext.Default.UserAddRequest);
-        // set not visible
-        await Client.PostAsJsonAsync("/user/hidden@example.com/preferences", new UserPreferencesUpdateRequest(ProfileVisible: false), AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
+        await Client.RegisterAndSignInAsync("Hidden Self", "hidden@example.com");
+        await Client.PostJsonAsync(
+            "/user/hidden@example.com/preferences",
+            new UserPreferencesUpdateRequest(ProfileVisible: false),
+            AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
 
-        // seed some expertise
         Ollama.EmbedAny(Enumerable.Repeat(0.1f, 1024).ToArray());
-        await Client.PostAsJsonAsync("/expertise/document", new ExpertiseDocumentIngestRequest("hidden profile topics here", "hidden@example.com"), AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
+        await Client.PostJsonAsync(
+            "/expertise/document",
+            new ExpertiseDocumentIngestRequest("hidden profile topics here"),
+            AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
 
         var profileResp = await Client.GetAsync("/user/hidden@example.com/expertise");
         Assert.Equal(HttpStatusCode.OK, profileResp.StatusCode);
@@ -291,7 +250,32 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Assert.NotNull(profile);
         Assert.Equal("Hidden Self", profile.Name);
         Assert.Equal("hidden@example.com", profile.Email);
-        // full fields visible even though !ProfileVisible (endpoint behavior for self/profile access)
         Assert.NotNull(profile.LastUpdated);
+
+        var other = CreateSession();
+        await other.RegisterAndSignInAsync("Other Person", "other-hidden@example.com");
+        var hidden = await other.GetAsync("/user/hidden@example.com/expertise");
+        Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+
+        var shown = await Client.PostJsonAsync(
+            "/user/hidden@example.com/preferences",
+            new UserPreferencesUpdateRequest(ProfileVisible: true),
+            AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
+        Assert.Equal(HttpStatusCode.OK, shown.StatusCode);
+
+        var visible = await other.GetAsync("/user/hidden@example.com/expertise");
+        Assert.Equal(HttpStatusCode.OK, visible.StatusCode);
+    }
+
+    private async Task<SessionClient> SeedAsync(string name, string email, string document)
+    {
+        var session = CreateSession();
+        await session.RegisterAndSignInAsync(name, email);
+        var ingest = await session.PostJsonAsync(
+            "/expertise/document",
+            new ExpertiseDocumentIngestRequest(document),
+            AppJsonSerializerContext.Default.ExpertiseDocumentIngestRequest);
+        Assert.Equal(HttpStatusCode.OK, ingest.StatusCode);
+        return session;
     }
 }

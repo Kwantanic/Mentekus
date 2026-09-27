@@ -12,15 +12,7 @@ public interface IExpertiseService
 
     Task<UserExpertiseProfile?> GetUserExpertiseAsync(Guid userId, CancellationToken cancellationToken = default);
 
-    Task<string> IngestDocumentAsync(string text, string email, CancellationToken cancellationToken = default);
+    Task<string> IngestDocumentAsync(string text, Guid userId, CancellationToken cancellationToken = default);
 
     Task<List<ExpertiseRouteMatch>> RouteExpertsAsync(string query, int limit, CancellationToken cancellationToken = default);
 }
-
-public sealed record ExpertiseDocumentIngestRequest(
-    [property: System.Text.Json.Serialization.JsonRequired] string Text,
-    [property: System.Text.Json.Serialization.JsonRequired] string Email);
-
-public sealed record ExpertiseRouteRequest(
-    [property: System.Text.Json.Serialization.JsonRequired] string Query,
-    int Limit = 10);

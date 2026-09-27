@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Mentekus.Api.Features.Auth;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Generated;
@@ -10,7 +12,7 @@ public static class QuestionEndpoints
 {
     public static void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("question/").WithTags("Question");
+        var group = endpoints.MapGroup("question/").WithTags("Question").RequireAuthorization();
 
         group.MapPost("ask", HandleAskAsync);
         group.MapPost("similarity", HandleSimilarityAsync);
@@ -19,9 +21,10 @@ public static class QuestionEndpoints
 
     private static async Task<Ok<string>> HandleAskAsync(QuestionAskRequest request,
         IQuestionService questionService,
+        ClaimsPrincipal user,
         CancellationToken cancellationToken)
     {
-        var answer = await questionService.AskAsync(request.Question, request.Email, cancellationToken);
+        var answer = await questionService.AskAsync(request.Question, CurrentUser.GetId(user), cancellationToken);
         return TypedResults.Ok(answer);
     }
 
@@ -38,9 +41,10 @@ public static class QuestionEndpoints
     private static async Task<Ok<string>> HandleAnswerAsync(
         QuestionAnswerRequest request,
         IQuestionService questionService,
+        ClaimsPrincipal user,
         CancellationToken cancellationToken)
     {
-        var result = await questionService.AnswerAsync(request.QuestionId, request.Answer, request.Email, cancellationToken);
+        var result = await questionService.AnswerAsync(request.QuestionId, request.Answer, CurrentUser.GetId(user), cancellationToken);
         return TypedResults.Ok(result);
     }
 }

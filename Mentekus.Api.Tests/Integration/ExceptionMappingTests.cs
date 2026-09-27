@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using Mentekus.Api.Features.Question.Requests;
-using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Mentekus.Api.Serialization;
 using Microsoft.AspNetCore.Mvc;
@@ -15,8 +14,7 @@ public class ExceptionMappingTests : IntegrationTestBase
 
     private async Task EnsureUserExists()
     {
-        await Client.PostAsJsonAsync("/user/add", new UserAddRequest("Exception Test", TestEmail),
-            AppJsonSerializerContext.Default.UserAddRequest);
+        await Client.RegisterAndSignInAsync("Exception Test", TestEmail);
     }
 
     [Fact]
@@ -27,8 +25,8 @@ public class ExceptionMappingTests : IntegrationTestBase
         Ollama.EmbedThrows(s => s == "trigger-notfound", new NotFoundException("Test Entity", 123));
 
         // Act
-        var response = await Client.PostAsJsonAsync("/question/ask",
-            new QuestionAskRequest("trigger-notfound", TestEmail), AppJsonSerializerContext.Default.QuestionAskRequest);
+        var response = await Client.PostJsonAsync("/question/ask",
+            new QuestionAskRequest("trigger-notfound"), AppJsonSerializerContext.Default.QuestionAskRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -47,8 +45,8 @@ public class ExceptionMappingTests : IntegrationTestBase
         Ollama.EmbedThrows(s => s == "trigger-unauthorized", new UnauthorizedAccessException("Test Unauthorized"));
 
         // Act
-        var response = await Client.PostAsJsonAsync("/question/ask",
-            new QuestionAskRequest("trigger-unauthorized", TestEmail),
+        var response = await Client.PostJsonAsync("/question/ask",
+            new QuestionAskRequest("trigger-unauthorized"),
             AppJsonSerializerContext.Default.QuestionAskRequest);
 
         // Assert
@@ -62,16 +60,11 @@ public class ExceptionMappingTests : IntegrationTestBase
     [Fact]
     public async Task ArgumentException_Returns400()
     {
-        // Arrange
-        // QuestionService throws ArgumentException if email is null/empty, 
-        // but QuestionEndpoints also validates it. 
-        // Let's mock OllamaAdapter to throw it.
         await EnsureUserExists();
         Ollama.EmbedThrows(s => s == "trigger-argument", new ArgumentException("Test Argument"));
 
-        // Act
-        var response = await Client.PostAsJsonAsync("/question/ask",
-            new QuestionAskRequest("trigger-argument", TestEmail), AppJsonSerializerContext.Default.QuestionAskRequest);
+        var response = await Client.PostJsonAsync("/question/ask",
+            new QuestionAskRequest("trigger-argument"), AppJsonSerializerContext.Default.QuestionAskRequest);
 
         // Assert
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -95,8 +88,8 @@ public class ExceptionMappingTests : IntegrationTestBase
         Ollama.EmbedThrows(s => s == "trigger-validation", new ValidationException(errors));
 
         // Act
-        var response = await Client.PostAsJsonAsync("/question/ask",
-            new QuestionAskRequest("trigger-validation", TestEmail),
+        var response = await Client.PostJsonAsync("/question/ask",
+            new QuestionAskRequest("trigger-validation"),
             AppJsonSerializerContext.Default.QuestionAskRequest);
 
         // Assert

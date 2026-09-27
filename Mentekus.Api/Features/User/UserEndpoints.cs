@@ -1,6 +1,8 @@
+using System.Security.Claims;
+using Mentekus.Api.Features.Auth;
 using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Expertise.Entities;
-using Mentekus.Api.Features.User.Requests;
+using Mentekus.Api.Features.Expertise.Requests;
 using Mentekus.Api.Generated;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -12,66 +14,55 @@ public static class UserEndpoints
 {
     public static void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("user/").WithTags("User");
+        var group = endpoints.MapGroup("user/").WithTags("User").RequireAuthorization();
 
-        group.MapPost("add", HandleAddAsync);
         group.MapGet("{email}/expertise", HandleGetExpertiseProfileAsync);
         group.MapPost("{email}/preferences", HandleUpdatePreferencesAsync);
     }
 
-    private static async Task<Ok<UserAddResponse>> HandleAddAsync(
-        UserAddRequest request,
-        IUserService userService,
-        CancellationToken cancellationToken)
-    {
-        var existingUserId = await userService.GetUserIdByEmailAsync(request.Email, cancellationToken);
-        if (existingUserId != null)
-        {
-            throw new ValidationException(nameof(request.Email), "User with this email already exists.");
-        }
-
-        var id = await userService.AddUserAsync(request.Name, request.Email, cancellationToken);
-
-        return TypedResults.Ok(new UserAddResponse(id, request.Name, request.Email));
-    }
-
     private static async Task<Ok<UserExpertiseProfile>> HandleGetExpertiseProfileAsync(
         string email,
+        ClaimsPrincipal user,
         IUserService userService,
         IExpertiseService expertiseService,
         CancellationToken cancellationToken)
     {
-        var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
-        if (userId == null)
+        var access = await userService.GetUserAccessByEmailAsync(email, cancellationToken);
+        var callerId = CurrentUser.GetId(user);
+        if (access == null || (access.Id != callerId && !access.ProfileVisible))
             throw new NotFoundException($"User with email {email} not found.");
 
-        var profile = await expertiseService.GetUserExpertiseAsync(userId.Value, cancellationToken);
-        // profile cannot be null here: prior GetUserIdByEmailAsync succeeded so the user row exists (GetUserExpertiseAsync only nulls on missing user row)
-        return TypedResults.Ok(profile!);
+        var profile = await expertiseService.GetUserExpertiseAsync(access.Id, cancellationToken);
+        if (profile == null)
+            throw new NotFoundException($"User with email {email} not found.");
+
+        return TypedResults.Ok(profile);
     }
 
     private static async Task<Ok<string>> HandleUpdatePreferencesAsync(
         string email,
         UserPreferencesUpdateRequest request,
+        ClaimsPrincipal user,
         IUserService userService,
         CancellationToken cancellationToken)
     {
-        var userId = await userService.GetUserIdByEmailAsync(email, cancellationToken);
-        if (userId == null)
+        var access = await userService.GetUserAccessByEmailAsync(email, cancellationToken);
+        if (access == null)
             throw new NotFoundException($"User with email {email} not found.");
+        if (access.Id != CurrentUser.GetId(user))
+            throw new ForbiddenException("You can only update your own preferences.");
 
-        await userService.UpdateUserPreferencesAsync(userId.Value, request.ProfileVisible, request.AllowRouting, cancellationToken);
+        await userService.UpdateUserPreferencesAsync(access.Id, request.ProfileVisible, request.AllowRouting, cancellationToken);
         return TypedResults.Ok("Preferences updated.");
     }
 }
 
-// Expertise endpoints defined in this file (avoids new file per constraints; generator discovers [EndpointGroup] types)
 [EndpointGroup]
 public static class ExpertiseEndpoints
 {
     public static void MapEndpoints(IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("expertise/").WithTags("Expertise");
+        var group = endpoints.MapGroup("expertise/").WithTags("Expertise").RequireAuthorization();
 
         group.MapPost("document", HandleIngestDocumentAsync);
         group.MapPost("route", HandleRouteAsync);
@@ -80,9 +71,10 @@ public static class ExpertiseEndpoints
     private static async Task<Ok<string>> HandleIngestDocumentAsync(
         ExpertiseDocumentIngestRequest request,
         IExpertiseService expertiseService,
+        ClaimsPrincipal user,
         CancellationToken cancellationToken)
     {
-        var result = await expertiseService.IngestDocumentAsync(request.Text, request.Email, cancellationToken);
+        var result = await expertiseService.IngestDocumentAsync(request.Text, CurrentUser.GetId(user), cancellationToken);
         return TypedResults.Ok(result);
     }
 

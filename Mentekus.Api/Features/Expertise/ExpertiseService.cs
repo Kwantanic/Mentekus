@@ -86,19 +86,13 @@ public class ExpertiseService(
             row.LastExpertiseUpdate);
     }
 
-    public async Task<string> IngestDocumentAsync(string text, string email, CancellationToken cancellationToken = default)
+    public async Task<string> IngestDocumentAsync(string text, Guid userId, CancellationToken cancellationToken = default)
     {
-        // Resolve user (will be called from endpoint which also validates)
-        // For blending side effects post-doc
-        var userId = await GetUserIdByEmailInternalAsync(email, cancellationToken);
-        if (userId == null)
-            throw new NotFoundException($"User with email {email} not found.");
-
         var embedding = await ollamaAdapter.EmbedAsync(text, cancellationToken);
         if (embedding == null || embedding.Length == 0)
             throw new EmbeddingFailedException("Failed to generate embedding for the document.");
 
-        await UpdateFromContributionAsync(userId.Value, embedding, text, ExpertiseSql.DocumentSourceType, cancellationToken: cancellationToken);
+        await UpdateFromContributionAsync(userId, embedding, text, ExpertiseSql.DocumentSourceType, cancellationToken: cancellationToken);
 
         return "Document ingested. Expertise updated.";
     }
@@ -159,12 +153,6 @@ public class ExpertiseService(
         // Re-rank by hybrid score desc, then take the requested limit (overfetch + re-rank allows topic bonus to promote candidates outside pure-vec top-N)
         matches = matches.OrderByDescending(m => m.Score).ThenByDescending(m => m.VecSim).Take(limit).ToList();
         return matches;
-    }
-
-    private async Task<Guid?> GetUserIdByEmailInternalAsync(string email, CancellationToken cancellationToken)
-    {
-        // Lightweight reuse of user query logic; avoid cross dep for minimal.
-        return await connection.ExecuteScalarAsync<Guid?>("SELECT Id FROM Users WHERE LOWER(Email) = LOWER(@Email)", new { Email = email });
     }
 
     private static double ComputeCosineSimilarity(float[] queryEmb, Pgvector.Vector? userVec)

@@ -13,7 +13,7 @@ public class IntegrationTestBase : IAsyncLifetime
 
     private TestWebApplicationFactory _factory = null!;
 
-    protected HttpClient Client { get; private set; } = null!;
+    protected SessionClient Client { get; private set; } = null!;
     protected IServiceProvider Services { get; private set; } = null!;
     protected FakeOllamaAdapter Ollama => _factory.Ollama;
 
@@ -26,8 +26,15 @@ public class IntegrationTestBase : IAsyncLifetime
             ConnectionString = PostgreSqlContainer.GetConnectionString()
         };
 
-        Client = _factory.CreateClient();
+        Client = CreateSession();
         Services = _factory.Services;
+    }
+
+    protected SessionClient CreateSession()
+    {
+        var handler = new CookieJarHandler(_factory.Server.CreateHandler());
+        var client = new HttpClient(handler) { BaseAddress = _factory.Server.BaseAddress };
+        return new SessionClient(client);
     }
 
     public virtual async Task DisposeAsync()

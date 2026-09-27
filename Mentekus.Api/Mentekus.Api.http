@@ -1,34 +1,86 @@
 @Mentekus.Api_HostAddress = http://localhost:8080
+# dotnet run (Development, Scalar at /scalar/v1) listens on http://localhost:5277.
+# Compose publishes the API on http://localhost:8080 and runs as Production.
 
-# Note: In Development the Scalar UI is at /scalar/v1 (or /openapi for raw spec)
+# Development does not require X-XSRF-TOKEN. Every other environment does.
+# The request below stores the token for the header used on later requests.
 
 ###
-# Add a user first (required for question endpoints)
+# Issue the XSRF cookie and read the header value
 
-POST {{Mentekus.Api_HostAddress}}/user/add
+GET {{Mentekus.Api_HostAddress}}/auth/xsrf
+
+> {%
+    client.global.set("xsrf", response.body.token);
+%}
+
+###
+# Register. Email is unique case-insensitively. No confirmation message is sent.
+# Sets the HttpOnly session cookie mentekus.auth.
+
+POST {{Mentekus.Api_HostAddress}}/auth/register
 Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
 
 {
   "name": "Ada Lovelace",
-  "email": "ada@example.com"
+  "email": "ada@example.com",
+  "password": "correct horse"
 }
 
 ###
-# Submit / store a question (embeds via Ollama and persists with pgvector)
+# Log in (also case-insensitive on email)
+
+POST {{Mentekus.Api_HostAddress}}/auth/login
+Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
+
+{
+  "email": "ADA@example.com",
+  "password": "correct horse"
+}
+
+###
+GET {{Mentekus.Api_HostAddress}}/auth/me
+
+###
+# Register more users, then log back in as Ada before the calls that act as her
+
+POST {{Mentekus.Api_HostAddress}}/auth/register
+Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
+
+{
+  "name": "Grace Hopper",
+  "email": "grace@example.com",
+  "password": "correct horse"
+}
+
+###
+POST {{Mentekus.Api_HostAddress}}/auth/login
+Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
+
+{
+  "email": "ada@example.com",
+  "password": "correct horse"
+}
+
+###
+# Store a question as the signed-in user
 
 POST {{Mentekus.Api_HostAddress}}/question/ask
 Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
 
 {
-  "question": "What is Native AOT?",
-  "email": "ada@example.com"
+  "question": "What is Native AOT?"
 }
 
 ###
-# Semantic similarity search (returns similar previously asked questions)
-
 POST {{Mentekus.Api_HostAddress}}/question/similarity
 Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
 
 {
   "text": "Tell me about ahead-of-time compilation",
@@ -36,69 +88,35 @@ Content-Type: application/json
 }
 
 ###
-# Add more users for expertise/routing examples
-
-POST {{Mentekus.Api_HostAddress}}/user/add
-Content-Type: application/json
-
-{
-  "name": "Grace Hopper",
-  "email": "grace@example.com"
-}
-
-POST {{Mentekus.Api_HostAddress}}/user/add
-Content-Type: application/json
-
-{
-  "name": "Linus Torvalds",
-  "email": "linus@example.com"
-}
-
-###
-# Submit a question first (to obtain a real ID for the answer example below)
-# (In manual/Scalar use: copy the returned question ID into the answer request.)
-
-POST {{Mentekus.Api_HostAddress}}/question/ask
-Content-Type: application/json
-
-{
-  "question": "What is Native AOT?",
-  "email": "grace@example.com"
-}
-
-###
-# Submit answer to a question (contributes to answerer's expertise with Answer alpha; validates qid)
-# Use a real questionId from a prior /question/ask response (the zero-UUID here is illustrative only and would 404).
-# Expected: 200 "Answer recorded for question <id>. Expertise updated."
+# Answer as the signed-in user. Replace questionId with an id from /question/ask.
+# A zero id returns 404.
 
 POST {{Mentekus.Api_HostAddress}}/question/answer
 Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
 
 {
   "questionId": "00000000-0000-0000-0000-000000000000",
-  "answer": "Native AOT produces a self-contained executable with no JIT at runtime.",
-  "email": "grace@example.com"
+  "answer": "Native AOT produces a self-contained executable with no JIT at runtime."
 }
 
 ###
-# Ingest a document/CV for expertise (high alpha blend + topics graph)
-# Expected: 200 "Document ingested. Expertise updated."
+# Ingest a document for the signed-in user
 
 POST {{Mentekus.Api_HostAddress}}/expertise/document
 Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
 
 {
-  "text": "Senior .NET engineer with deep pgvector and Native AOT experience at Acme Corp.",
-  "email": "grace@example.com"
+  "text": "Senior .NET engineer with deep pgvector and Native AOT experience at Acme Corp."
 }
 
 ###
-# Route to experts (hybrid vec sim + topic match; only AllowRouting=true users; ranked by Score)
-# Returns list of ExpertiseRouteMatch: UserId, Name, Email, Score, VecSim, MatchedTopics[], Confidence
-# Expected example: [ { "userId": "...", "name": "Grace Hopper", ..., "matchedTopics": ["native aot", "pgvector"], "score": 0.87, ... } ]
+# Route to experts. AllowRouting must be true. Ranked by hybrid score.
 
 POST {{Mentekus.Api_HostAddress}}/expertise/route
 Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
 
 {
   "query": "native aot pgvector expert",
@@ -106,16 +124,17 @@ Content-Type: application/json
 }
 
 ###
-# Get user expertise profile (includes top topics from graph, summary, last update)
-# Full profile returned even if ProfileVisible=false (self access semantics)
+# Own profile is returned even when ProfileVisible is false.
+# Another signed-in user receives 404 for a hidden profile.
 
-GET {{Mentekus.Api_HostAddress}}/user/grace@example.com/expertise
+GET {{Mentekus.Api_HostAddress}}/user/ada@example.com/expertise
 
 ###
-# Update user preferences (flags for visibility and routing inclusion)
+# Preferences can be changed only for the signed-in user
 
-POST {{Mentekus.Api_HostAddress}}/user/linus@example.com/preferences
+POST {{Mentekus.Api_HostAddress}}/user/ada@example.com/preferences
 Content-Type: application/json
+X-XSRF-TOKEN: {{xsrf}}
 
 {
   "profileVisible": false,
@@ -123,14 +142,8 @@ Content-Type: application/json
 }
 
 ###
-# Example route after flag changes (users with AllowRouting=false excluded from results)
-
-POST {{Mentekus.Api_HostAddress}}/expertise/route
+POST {{Mentekus.Api_HostAddress}}/auth/logout
 Content-Type: application/json
-
-{
-  "query": "kernel linux expert",
-  "limit": 3
-}
+X-XSRF-TOKEN: {{xsrf}}
 
 ###

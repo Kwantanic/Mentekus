@@ -25,6 +25,7 @@ public class GlobalExceptionHandler(
             BadHttpRequestException => StatusCodes.Status400BadRequest,
             ArgumentException => StatusCodes.Status400BadRequest,
             UnauthorizedAccessException => StatusCodes.Status401Unauthorized,
+            ForbiddenException => StatusCodes.Status403Forbidden,
             NotFoundException => StatusCodes.Status404NotFound,
             EmbeddingFailedException => StatusCodes.Status503ServiceUnavailable,
             OperationCanceledException => 499, // Client Closed Request
@@ -72,6 +73,13 @@ public class GlobalExceptionHandler(
                 Title = "Unauthorized",
                 Detail = unauthorizedAccessException.Message,
                 Type = "https://tools.ietf.org/html/rfc7235#section-3.1"
+            },
+            ForbiddenException forbiddenException => new ProblemDetails
+            {
+                Status = statusCode,
+                Title = "Forbidden",
+                Detail = forbiddenException.Message,
+                Type = "https://tools.ietf.org/html/rfc7231#section-6.5.3"
             },
             NotFoundException notFoundException => new ProblemDetails
             {

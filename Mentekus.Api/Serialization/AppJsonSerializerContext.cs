@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json.Serialization;
-using Mentekus.Api.Features.Expertise;
+using Mentekus.Api.Features.Auth;
+using Mentekus.Api.Features.Auth.Requests;
 using Mentekus.Api.Features.Expertise.Entities;
+using Mentekus.Api.Features.Expertise.Requests;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
-using Mentekus.Api.Features.User.Requests;
 using Mentekus.Api.Shared.Adapters;
 using Pgvector;
 
@@ -21,8 +22,11 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(OllamaGenerateRequest))]
 [JsonSerializable(typeof(OllamaGenerateResponse))]
 [JsonSerializable(typeof(Vector))]
-[JsonSerializable(typeof(UserAddRequest))]
-[JsonSerializable(typeof(UserAddResponse))]
+[JsonSerializable(typeof(RegisterRequest))]
+[JsonSerializable(typeof(LoginRequest))]
+[JsonSerializable(typeof(AuthUser))]
+[JsonSerializable(typeof(AuthSessionResponse))]
+[JsonSerializable(typeof(XsrfTokenResponse))]
 [JsonSerializable(typeof(UserPreferencesUpdateRequest))]
 [JsonSerializable(typeof(UserExpertiseProfile))]
 [JsonSerializable(typeof(List<UserExpertiseProfile>))]
