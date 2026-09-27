@@ -5,6 +5,7 @@ using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Generated;
 using Mentekus.Api.Infrastructure.ErrorHandling;
 using Mentekus.Api.Serialization;
+using Mentekus.Api.Shared;
 using Mentekus.Api.Shared.Adapters;
 using Mentekus.Api.Shared.Database;
 using Scalar.AspNetCore;
@@ -43,6 +44,7 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
+app.MapHealth();
 app.MapAllEndpoints();
 
 await app.RunAsync();

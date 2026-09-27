@@ -3,7 +3,9 @@
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
-        <WarningsAsErrors>nullable;IL2026;IL2050;IL2055;IL2056;IL2057;IL2060;IL2062;IL2065;IL2067;IL2070;IL2072;IL2075;IL2077;IL2080;IL2087;IL2091;IL2104;IL2109;IL2111;IL3050;IL3051;IL3056</WarningsAsErrors>
+        <WarningsAsErrors>nullable;IL2026;IL2050;IL2055;IL2056;IL2057;IL2060;IL2062;IL2065;IL2067;IL2070;IL2072;IL2075;IL2077;IL2080;IL2087;IL2091;IL2109;IL2111;IL3050;IL3051;IL3056</WarningsAsErrors>
+        <!-- IL2104 and IL3053 are emitted for Dapper and DbUp, which are not trim-annotated. -->
+        <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
         <IlcTreatWarningsAsErrors>true</IlcTreatWarningsAsErrors>
         <ImplicitUsings>enable</ImplicitUsings>
         <InvariantGlobalization>true</InvariantGlobalization>

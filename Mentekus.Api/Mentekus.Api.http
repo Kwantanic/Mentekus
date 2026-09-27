@@ -1,4 +1,9 @@
 @Mentekus.Api_HostAddress = http://localhost:8080
+
+###
+# Liveness. No session cookie is required.
+
+GET {{Mentekus.Api_HostAddress}}/health
 # dotnet run (Development, Scalar at /scalar/v1) listens on http://localhost:5277.
 # Compose publishes the API on http://localhost:8080 and runs as Production.
 
