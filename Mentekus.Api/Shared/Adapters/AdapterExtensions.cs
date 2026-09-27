@@ -16,8 +16,13 @@ public static class AdapterExtensions
 
             if (string.IsNullOrWhiteSpace(options.BaseUrl))
                 throw new InvalidOperationException("Configuration value 'Ollama:BaseUrl' is required.");
+            if (string.IsNullOrWhiteSpace(options.KeepAlive))
+                throw new InvalidOperationException("Configuration value 'Ollama:KeepAlive' is required.");
+            if (options.TimeoutSeconds <= 0)
+                throw new InvalidOperationException("Configuration value 'Ollama:TimeoutSeconds' must be positive.");
 
             httpClient.BaseAddress = new Uri(options.BaseUrl);
+            httpClient.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
         });
 
         return services;
