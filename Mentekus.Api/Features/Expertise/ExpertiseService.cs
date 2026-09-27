@@ -80,23 +80,40 @@ public class ExpertiseService(
         try
         {
             await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
             foreach (var raw in topics.Take(TopicLimit(sourceType)))
             {
                 var topicName = raw.Trim().ToLowerInvariant();
                 if (string.IsNullOrWhiteSpace(topicName))
                     continue;
 
-                try
-                {
-                    await UpsertTopicAndStrengthAsync(connection, userId, topicName, weight);
-                }
-                catch (Exception exception) when (exception is not OperationCanceledException)
-                {
-                    logger.LogWarning(exception,
-                        "Topic graph maintenance failed for user {UserId} source {SourceType} topic {Topic}.",
-                        userId, sourceType, topicName);
-                }
+                await UpsertTopicAndStrengthAsync(connection, transaction, userId, topicName, weight);
             }
+
+            await connection.ExecuteAsync(
+                ExpertiseSql.PruneFadedTopics,
+                new
+                {
+                    UserId = userId,
+                    HalfLifeSeconds = ExpertiseSql.HalfLifeSeconds,
+                    MinimumStrength = ExpertiseSql.MinimumTopicStrength
+                },
+                transaction);
+            var names = (await connection.QueryAsync<TopicStrengthRow>(
+                ExpertiseSql.GetUserTopics,
+                new
+                {
+                    UserId = userId,
+                    Limit = 10,
+                    HalfLifeSeconds = ExpertiseSql.HalfLifeSeconds,
+                    MinimumStrength = ExpertiseSql.MinimumTopicStrength
+                },
+                transaction)).Select(topic => topic.Name).ToArray();
+            await connection.ExecuteAsync(
+                ExpertiseSql.UpdateExpertiseSummary,
+                new { UserId = userId, Summary = SummarizeTopics(names) },
+                transaction);
+            await transaction.CommitAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -118,15 +135,22 @@ public class ExpertiseService(
         if (row == null)
             return null;
 
-        var topicRows = await connection.QueryAsync<TopicStrengthRow>(
-            ExpertiseSql.GetUserTopics, new { UserId = userId, Limit = 10 });
+        var topics = (await connection.QueryAsync<TopicStrengthRow>(
+            ExpertiseSql.GetUserTopics,
+            new
+            {
+                UserId = userId,
+                Limit = 10,
+                HalfLifeSeconds = ExpertiseSql.HalfLifeSeconds,
+                MinimumStrength = ExpertiseSql.MinimumTopicStrength
+            })).Select(topic => topic.Name).ToArray();
 
         return new UserExpertiseProfile(
             row.UserId,
             row.Name,
             row.Email,
-            row.ExpertiseSummary,
-            topicRows.Select(topic => topic.Name).ToArray(),
+            SummarizeTopics(topics),
+            topics,
             row.LastExpertiseUpdate);
     }
 
@@ -162,7 +186,13 @@ public class ExpertiseService(
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var candidates = (await connection.QueryAsync<UserRoutingRow>(
             ExpertiseSql.FindRoutableUsersWithEmbedding,
-            new { Vector = new Vector(embedding), Limit = Math.Min(limit * 3, 50) })).ToList();
+            new
+            {
+                Vector = new Vector(embedding),
+                Limit = Math.Min(limit * 3, 50),
+                HalfLifeSeconds = ExpertiseSql.HalfLifeSeconds,
+                MinimumStrength = ExpertiseSql.MinimumTopicStrength
+            })).ToList();
 
         var matches = new List<ExpertiseRouteMatch>(candidates.Count);
         foreach (var candidate in candidates)
@@ -198,10 +228,15 @@ public class ExpertiseService(
         }
     }
 
-    private async Task UpsertTopicAndStrengthAsync(NpgsqlConnection connection, Guid userId, string topicName, float weight)
+    private async Task UpsertTopicAndStrengthAsync(
+        NpgsqlConnection connection,
+        IDbTransaction transaction,
+        Guid userId,
+        string topicName,
+        float weight)
     {
         var existingId = await connection.ExecuteScalarAsync<Guid?>(
-            ExpertiseSql.GetTopicIdByName, new { Name = topicName });
+            ExpertiseSql.GetTopicIdByName, new { Name = topicName }, transaction);
 
         Guid topicId;
         if (existingId.HasValue)
@@ -212,10 +247,10 @@ public class ExpertiseService(
         {
             topicId = Guid.NewGuid();
             await connection.ExecuteAsync(ExpertiseSql.UpsertTopic,
-                new { Id = topicId, Name = topicName, CreatedAt = DateTime.UtcNow });
+                new { Id = topicId, Name = topicName, CreatedAt = DateTime.UtcNow }, transaction);
 
             var reloaded = await connection.ExecuteScalarAsync<Guid?>(
-                ExpertiseSql.GetTopicIdByName, new { Name = topicName });
+                ExpertiseSql.GetTopicIdByName, new { Name = topicName }, transaction);
             if (!reloaded.HasValue)
             {
                 logger.LogDebug("Topic re-query after upsert returned no ID for name {TopicName} (skipping strength update for user {UserId}).", topicName, userId);
@@ -225,8 +260,16 @@ public class ExpertiseService(
             topicId = reloaded.Value;
         }
 
-        await connection.ExecuteAsync(ExpertiseSql.UpdateUserTopicStrength,
-            new { UserId = userId, TopicId = topicId, Strength = weight });
+        await connection.ExecuteAsync(
+            ExpertiseSql.UpdateUserTopicStrength,
+            new
+            {
+                UserId = userId,
+                TopicId = topicId,
+                Strength = weight,
+                HalfLifeSeconds = ExpertiseSql.HalfLifeSeconds
+            },
+            transaction);
     }
 
     private async Task<string[]> ExtractTopicsInternalAsync(string text, string sourceType, CancellationToken cancellationToken)
@@ -261,8 +304,8 @@ public class ExpertiseService(
             var days = (DateTime.UtcNow - lastUpdatedUtc.Value).TotalDays;
             if (days > 0)
             {
-                // Exponential decay, 90-day half-life. Magnitude is what fades, so the next blend weighs the new contribution more.
-                var decay = (float)Math.Pow(0.5, days / 90.0);
+                // Magnitude fades, so the next blend weighs the new contribution more.
+                var decay = (float)Math.Pow(0.5, days / ExpertiseSql.HalfLifeDays);
                 for (int i = 0; i < dim; i++)
                     curr[i] *= decay;
             }
@@ -273,6 +316,19 @@ public class ExpertiseService(
             blended[i] = alpha * contribution[i] + (1f - alpha) * curr[i];
 
         return blended;
+    }
+
+    private static string? SummarizeTopics(IReadOnlyList<string> names)
+    {
+        if (names.Count == 0)
+            return null;
+
+        var summary = string.Join(", ", names);
+        const int maxLength = 500;
+        if (summary.Length <= maxLength)
+            return summary;
+
+        return summary[..maxLength].TrimEnd(',', ' ');
     }
 
     private static int TopicLimit(string sourceType) =>

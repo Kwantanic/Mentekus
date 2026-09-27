@@ -4,5 +4,4 @@ internal record UserExpertiseRow(
     Guid UserId,
     string Name,
     string Email,
-    string? ExpertiseSummary,
     DateTime? LastExpertiseUpdate);

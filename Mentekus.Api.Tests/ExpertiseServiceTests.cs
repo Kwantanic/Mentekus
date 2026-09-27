@@ -3,6 +3,7 @@ using Mentekus.Api.Features.Auth;
 using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Shared.Adapters;
+using Npgsql;
 using Microsoft.Extensions.DependencyInjection;
 using Pgvector;
 using System.Linq;
@@ -95,8 +96,57 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
         Assert.Equal("graph@example.com", profile.Email);
         Assert.Contains("dotnet aot", profile.TopTopics);
         Assert.Contains("pgvector similarity", profile.TopTopics);
-        // Profile projection join exercised
-        Assert.True(profile.TopTopics.Length >= 1 && profile.TopTopics.Length <= 5);
+        Assert.True(profile.TopTopics.Length >= 1 && profile.TopTopics.Length <= 8);
+        Assert.Equal(string.Join(", ", profile.TopTopics), profile.ExpertiseSummary);
+    }
+
+    [Fact]
+    public async Task TopicStrength_DecaysOnTheVectorHalfLife_AndDropsWhenFaded()
+    {
+        using var scope = Services.CreateScope();
+        var sp = scope.ServiceProvider;
+        var user = await sp.GetRequiredService<IAuthService>().RegisterAsync("Decay User", "decay@example.com", "test-password");
+        var expertise = sp.GetRequiredService<IExpertiseService>();
+
+        Ollama.GenerateAny("[\"old skill\"]");
+        await expertise.ApplyTopicsAsync(user.Id, "old skill work", ExpertiseSql.DocumentSourceType);
+
+        await using var connection = await sp.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
+        await connection.ExecuteAsync(
+            """
+            UPDATE UserTopicExpertise
+            SET LastUpdated = now() - interval '90 days', Strength = 1
+            WHERE UserId = @UserId
+            """,
+            new { UserId = user.Id });
+
+        Ollama.GenerateAny("[\"old skill\"]");
+        await expertise.ApplyTopicsAsync(user.Id, "old skill again", ExpertiseSql.QuestionSourceType);
+
+        var strength = await connection.ExecuteScalarAsync<float>(
+            "SELECT Strength FROM UserTopicExpertise WHERE UserId = @UserId",
+            new { UserId = user.Id });
+        Assert.Equal(0.8f, strength, 0.02f);
+
+        Ollama.GenerateAny("[\"ancient skill\", \"fresh skill\"]");
+        await expertise.ApplyTopicsAsync(user.Id, "both skills", ExpertiseSql.DocumentSourceType);
+        await connection.ExecuteAsync(
+            """
+            UPDATE UserTopicExpertise ute
+            SET LastUpdated = now() - interval '360 days', Strength = 0.3
+            FROM Topics t
+            WHERE t.Id = ute.TopicId AND ute.UserId = @UserId AND t.Name = 'ancient skill'
+            """,
+            new { UserId = user.Id });
+
+        Ollama.GenerateAny("[\"fresh skill\"]");
+        await expertise.ApplyTopicsAsync(user.Id, "fresh only", ExpertiseSql.QuestionSourceType);
+
+        var profile = await expertise.GetUserExpertiseAsync(user.Id);
+        Assert.NotNull(profile);
+        Assert.Contains("fresh skill", profile.TopTopics);
+        Assert.DoesNotContain("ancient skill", profile.TopTopics);
+        Assert.DoesNotContain("ancient", profile.ExpertiseSummary);
     }
 
     [Fact]
