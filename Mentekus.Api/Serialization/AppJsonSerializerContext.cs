@@ -4,6 +4,7 @@ using Mentekus.Api.Features.Auth;
 using Mentekus.Api.Features.Auth.Requests;
 using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Features.Expertise.Requests;
+using Mentekus.Api.Features.Question;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
@@ -17,6 +18,11 @@ namespace Mentekus.Api.Serialization;
 [JsonSerializable(typeof(QuestionSimilarity))]
 [JsonSerializable(typeof(List<QuestionSimilarity>))]
 [JsonSerializable(typeof(QuestionAnswerRequest))]
+[JsonSerializable(typeof(QuestionCreated))]
+[JsonSerializable(typeof(AnswerCreated))]
+[JsonSerializable(typeof(QuestionDetail))]
+[JsonSerializable(typeof(QuestionAnswer))]
+[JsonSerializable(typeof(List<QuestionAnswer>))]
 [JsonSerializable(typeof(OllamaEmbedRequest))]
 [JsonSerializable(typeof(OllamaEmbedResponse))]
 [JsonSerializable(typeof(OllamaGenerateRequest))]

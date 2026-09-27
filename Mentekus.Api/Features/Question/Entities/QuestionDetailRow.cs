@@ -1,8 +1,8 @@
 namespace Mentekus.Api.Features.Question.Entities;
 
-public record QuestionSimilarity(
-    Guid QuestionId,
+internal record QuestionDetailRow(
+    Guid Id,
     string Text,
-    double Similarity,
+    DateTime CreatedAt,
     Guid? AskedByUserId,
     string? AskedByEmail);

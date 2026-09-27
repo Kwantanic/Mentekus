@@ -4,9 +4,11 @@ using Dapper;
 using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Features.Expertise.Requests;
+using Mentekus.Api.Features.Question;
 using Mentekus.Api.Features.Question.Entities;
 using Mentekus.Api.Features.Question.Requests;
 using Mentekus.Api.Features.User;
+using Npgsql;
 using Mentekus.Api.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,10 +30,18 @@ public class QuestionEndpointsTests : IntegrationTestBase
         var response = await Client.PostJsonAsync("/question/ask", new QuestionAskRequest(questionText), AppJsonSerializerContext.Default.QuestionAskRequest);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var content = await response.Content.ReadAsStringAsync();
-        Assert.Contains("Question saved (ID:", content);
-        Assert.Contains("Embedding length: 1024", content);
+        var created = await response.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.QuestionCreated);
+        Assert.NotNull(created);
+        Assert.NotEqual(Guid.Empty, created.Id);
         Assert.Equal([questionText], Ollama.EmbedCalls);
+
+        var detailResponse = await Client.GetAsync($"/question/{created.Id}");
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        var detail = await detailResponse.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.QuestionDetail);
+        Assert.NotNull(detail);
+        Assert.Equal(questionText, detail.Text);
+        Assert.Equal("test@example.com", detail.AskedByEmail);
+        Assert.Empty(detail.Answers);
     }
 
     [Fact]
@@ -94,9 +104,9 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Ollama.Embed("Initial Q", Enumerable.Range(0, 1024).Select(i => 0.01f).ToArray());
         var askResp = await Client.PostJsonAsync("/question/ask", new QuestionAskRequest("Initial Q"), AppJsonSerializerContext.Default.QuestionAskRequest);
         Assert.Equal(HttpStatusCode.OK, askResp.StatusCode);
-        var askContent = await askResp.Content.ReadAsStringAsync();
-        var qidStr = askContent.Split("ID: ")[1].Split(')')[0];
-        var questionId = Guid.Parse(qidStr);
+        var created = await askResp.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.QuestionCreated);
+        Assert.NotNull(created);
+        var questionId = created.Id;
 
         var ansEmb = Enumerable.Range(0, 1024).Select(i => i == 0 ? 0.8f : 0.02f).ToArray();
         Ollama.Embed("This is the answer text about AOT.", ansEmb);
@@ -108,9 +118,19 @@ public class QuestionEndpointsTests : IntegrationTestBase
             AppJsonSerializerContext.Default.QuestionAnswerRequest);
 
         Assert.Equal(HttpStatusCode.OK, ansResponse.StatusCode);
-        var ansStr = await ansResponse.Content.ReadAsStringAsync();
-        Assert.Contains("Answer recorded", ansStr);
-        Assert.Contains("Expertise updated", ansStr);
+        var answerCreated = await ansResponse.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.AnswerCreated);
+        Assert.NotNull(answerCreated);
+        Assert.Equal(questionId, answerCreated.QuestionId);
+
+        var detailResponse = await Client.GetAsync($"/question/{questionId}");
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        var detail = await detailResponse.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.QuestionDetail);
+        Assert.NotNull(detail);
+        Assert.Equal("Initial Q", detail.Text);
+        var stored = Assert.Single(detail.Answers);
+        Assert.Equal(answerCreated.Id, stored.Id);
+        Assert.Equal("This is the answer text about AOT.", stored.Text);
+        Assert.Equal("answerer@example.com", stored.AnsweredByEmail);
 
         using var scope = Services.CreateScope();
         var expertise = scope.ServiceProvider.GetRequiredService<IExpertiseService>();
@@ -118,7 +138,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Assert.NotNull(profile);
         Assert.Contains("aot", profile.TopTopics);
 
-        var conn = scope.ServiceProvider.GetRequiredService<System.Data.IDbConnection>();
+        await using var conn = await scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
         var dim = await conn.ExecuteScalarAsync<int>("SELECT vector_dims(ExpertiseEmbedding) FROM Users WHERE LOWER(Email)=LOWER(@e)", new { e = "answerer@example.com" });
         Assert.Equal(1024, dim);
     }
@@ -146,7 +166,9 @@ public class QuestionEndpointsTests : IntegrationTestBase
 
         Ollama.EmbedAny(Enumerable.Range(0, 1024).Select(_ => 0.05f).ToArray());
         var askR = await Client.PostJsonAsync("/question/ask", new QuestionAskRequest("Q2"), AppJsonSerializerContext.Default.QuestionAskRequest);
-        var qid = Guid.Parse((await askR.Content.ReadAsStringAsync()).Split("ID: ")[1].Split(')')[0]);
+        var created = await askR.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.QuestionCreated);
+        Assert.NotNull(created);
+        var qid = created.Id;
 
         Ollama.Embed("failing answer contrib", Enumerable.Range(0, 1024).Select(i => 0.77f).ToArray());
         Ollama.GenerateThrows(_ => true, new Exception("LLM down for generate"));
@@ -158,7 +180,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
         using var scope = Services.CreateScope();
-        var conn = scope.ServiceProvider.GetRequiredService<System.Data.IDbConnection>();
+        await using var conn = await scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
         var dim = await conn.ExecuteScalarAsync<int>("SELECT vector_dims(ExpertiseEmbedding) FROM Users WHERE LOWER(Email) = LOWER(@e)", new { e = "ans2@example.com" });
         Assert.Equal(1024, dim);
     }
@@ -182,7 +204,7 @@ public class QuestionEndpointsTests : IntegrationTestBase
         Assert.Contains("Document ingested. Expertise updated.", msg);
 
         using var scope = Services.CreateScope();
-        var conn = scope.ServiceProvider.GetRequiredService<System.Data.IDbConnection>();
+        await using var conn = await scope.ServiceProvider.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
         var dim = await conn.ExecuteScalarAsync<int>("SELECT vector_dims(ExpertiseEmbedding) FROM Users WHERE LOWER(Email)=LOWER(@e)", new { e = "docuser@example.com" });
         Assert.Equal(1024, dim);
     }
@@ -265,6 +287,72 @@ public class QuestionEndpointsTests : IntegrationTestBase
 
         var visible = await other.GetAsync("/user/hidden@example.com/expertise");
         Assert.Equal(HttpStatusCode.OK, visible.StatusCode);
+    }
+
+    [Fact]
+    public async Task Ask_WrongEmbeddingDimension_ReturnsBadRequest_AndStoresNothing()
+    {
+        await Client.RegisterAndSignInAsync("Dim User", "dim@example.com");
+        Ollama.EmbedAny(new float[512]);
+
+        var response = await Client.PostJsonAsync(
+            "/question/ask",
+            new QuestionAskRequest("bad dim"),
+            AppJsonSerializerContext.Default.QuestionAskRequest);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await using var connection = await Services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync();
+        var count = await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Questions");
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public async Task SimilarityAndGet_HideAsker_WhenProfileIsHidden()
+    {
+        await Client.RegisterAndSignInAsync("Hidden Asker", "hidden-asker@example.com");
+        await Client.PostJsonAsync(
+            "/user/hidden-asker@example.com/preferences",
+            new UserPreferencesUpdateRequest(ProfileVisible: false),
+            AppJsonSerializerContext.Default.UserPreferencesUpdateRequest);
+
+        var embedding = Enumerable.Repeat(0.4f, 1024).ToArray();
+        const string question = "visible only to me";
+        Ollama.Embed(question, embedding);
+        var ask = await Client.PostJsonAsync(
+            "/question/ask",
+            new QuestionAskRequest(question),
+            AppJsonSerializerContext.Default.QuestionAskRequest);
+        var created = await ask.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.QuestionCreated);
+        Assert.NotNull(created);
+
+        var other = CreateSession();
+        await other.RegisterAndSignInAsync("Searcher", "searcher@example.com");
+        var hiddenSearch = await other.PostJsonAsync(
+            "/question/similarity",
+            new QuestionSimilarityRequest(question, 5),
+            AppJsonSerializerContext.Default.QuestionSimilarityRequest);
+        var hiddenResults = await hiddenSearch.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.ListQuestionSimilarity);
+        Assert.NotNull(hiddenResults);
+        var hiddenHit = Assert.Single(hiddenResults, result => result.Text == question);
+        Assert.Null(hiddenHit.AskedByEmail);
+        Assert.Null(hiddenHit.AskedByUserId);
+
+        var hiddenGet = await other.GetAsync($"/question/{created.Id}");
+        var hiddenDetail = await hiddenGet.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.QuestionDetail);
+        Assert.NotNull(hiddenDetail);
+        Assert.Equal(question, hiddenDetail.Text);
+        Assert.Null(hiddenDetail.AskedByEmail);
+        Assert.Null(hiddenDetail.AskedByUserId);
+
+        var ownSearch = await Client.PostJsonAsync(
+            "/question/similarity",
+            new QuestionSimilarityRequest(question, 5),
+            AppJsonSerializerContext.Default.QuestionSimilarityRequest);
+        var ownResults = await ownSearch.Content.ReadFromJsonAsync(AppJsonSerializerContext.Default.ListQuestionSimilarity);
+        Assert.NotNull(ownResults);
+        var ownHit = Assert.Single(ownResults, result => result.Text == question);
+        Assert.Equal("hidden-asker@example.com", ownHit.AskedByEmail);
+        Assert.NotNull(ownHit.AskedByUserId);
     }
 
     private async Task<SessionClient> SeedAsync(string name, string email, string document)

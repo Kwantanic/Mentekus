@@ -1,4 +1,3 @@
-using System.Data;
 using Dapper;
 using Mentekus.Api.Features.Auth.Entities;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
@@ -7,7 +6,7 @@ using Npgsql;
 namespace Mentekus.Api.Features.Auth;
 
 [RegisterScoped(ServiceType = typeof(IAuthService))]
-public class AuthService(IDbConnection connection) : IAuthService
+public class AuthService(NpgsqlDataSource dataSource) : IAuthService
 {
     private const int MinPasswordLength = 8;
     private const int MaxPasswordLength = 128;
@@ -17,7 +16,9 @@ public class AuthService(IDbConnection connection) : IAuthService
         name = name.Trim();
         email = email.Trim();
         ValidateRegistration(name, email, password);
+        var passwordHash = PasswordHasher.Hash(password);
 
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var existing = await connection.ExecuteScalarAsync<Guid?>(AuthSql.GetUserIdByEmail, new { Email = email });
         if (existing != null)
             throw new ValidationException("Email", "User with this email already exists.");
@@ -30,7 +31,7 @@ public class AuthService(IDbConnection connection) : IAuthService
                 Id = id,
                 Name = name,
                 Email = email,
-                PasswordHash = PasswordHasher.Hash(password)
+                PasswordHash = passwordHash
             });
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
@@ -44,8 +45,12 @@ public class AuthService(IDbConnection connection) : IAuthService
     public async Task<AuthUser> LoginAsync(string email, string password, CancellationToken cancellationToken = default)
     {
         email = email.Trim();
-        var row = await connection.QuerySingleOrDefaultAsync<AuthCredentialRow>(
-            AuthSql.FindCredentialByEmail, new { Email = email });
+        AuthCredentialRow? row;
+        await using (var connection = await dataSource.OpenConnectionAsync(cancellationToken))
+        {
+            row = await connection.QuerySingleOrDefaultAsync<AuthCredentialRow>(
+                AuthSql.FindCredentialByEmail, new { Email = email });
+        }
 
         var matches = PasswordHasher.Verify(password, row?.PasswordHash);
         if (row?.PasswordHash == null || !matches)
@@ -56,6 +61,7 @@ public class AuthService(IDbConnection connection) : IAuthService
 
     public async Task<AuthUser?> GetUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync<AuthUserRow>(AuthSql.FindUserById, new { Id = userId });
         return row == null ? null : new AuthUser(row.Id, row.Name, row.Email);
     }

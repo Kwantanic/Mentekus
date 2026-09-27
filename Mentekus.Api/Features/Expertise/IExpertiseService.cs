@@ -1,3 +1,4 @@
+using System.Data;
 using Mentekus.Api.Features.Expertise.Entities;
 
 namespace Mentekus.Api.Features.Expertise;
@@ -7,6 +8,12 @@ public interface IExpertiseService
     Task UpdateVectorOnlyFromContributionAsync(Guid userId, float[] embedding, string sourceType, float? alphaOverride = null, CancellationToken cancellationToken = default);
 
     Task UpdateFromContributionAsync(Guid userId, float[] embedding, string text, string sourceType, float? alphaOverride = null, CancellationToken cancellationToken = default);
+
+    Task BlendContributionAsync(IDbConnection connection, IDbTransaction transaction, Guid userId, float[] embedding, string sourceType, float? alphaOverride = null, CancellationToken cancellationToken = default);
+
+    Task EnqueueTopicsAsync(Guid userId, string text, string sourceType, CancellationToken cancellationToken = default);
+
+    Task ApplyTopicsAsync(Guid userId, string text, string sourceType, CancellationToken cancellationToken = default);
 
     Task<string[]> ExtractTopicsAsync(string text, string? sourceType = null, CancellationToken cancellationToken = default);
 

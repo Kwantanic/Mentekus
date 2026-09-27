@@ -67,7 +67,7 @@ X-XSRF-TOKEN: {{xsrf}}
 }
 
 ###
-# Store a question as the signed-in user
+# Store a question as the signed-in user. The response id is the question to answer and read.
 
 POST {{Mentekus.Api_HostAddress}}/question/ask
 Content-Type: application/json
@@ -76,6 +76,10 @@ X-XSRF-TOKEN: {{xsrf}}
 {
   "question": "What is Native AOT?"
 }
+
+> {%
+    client.global.set("questionId", response.body.id);
+%}
 
 ###
 POST {{Mentekus.Api_HostAddress}}/question/similarity
@@ -88,7 +92,7 @@ X-XSRF-TOKEN: {{xsrf}}
 }
 
 ###
-# Answer as the signed-in user. Replace questionId with an id from /question/ask.
+# Answer as the signed-in user. The answer text is stored on the question.
 # A zero id returns 404.
 
 POST {{Mentekus.Api_HostAddress}}/question/answer
@@ -96,9 +100,14 @@ Content-Type: application/json
 X-XSRF-TOKEN: {{xsrf}}
 
 {
-  "questionId": "00000000-0000-0000-0000-000000000000",
+  "questionId": "{{questionId}}",
   "answer": "Native AOT produces a self-contained executable with no JIT at runtime."
 }
+
+###
+# Read the question and its answers. A hidden profile omits that person's id and email.
+
+GET {{Mentekus.Api_HostAddress}}/question/{{questionId}}
 
 ###
 # Ingest a document for the signed-in user

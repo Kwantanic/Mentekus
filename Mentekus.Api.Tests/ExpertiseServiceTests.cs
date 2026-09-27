@@ -87,6 +87,7 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
         vec[0] = 0.42f;
 
         await expertise.UpdateFromContributionAsync(userId, vec, "Senior engineer experienced in Native AOT and pgvector for semantic search in .NET.", "Document");
+        await WaitForTopicsAsync();
 
         var profile = await expertise.GetUserExpertiseAsync(userId);
         Assert.NotNull(profile);
@@ -115,6 +116,12 @@ public class ExpertiseServiceTests : Integration.IntegrationTestBase
         Assert.Equal(2, good.Length);
         Assert.Equal("native aot", good[0]);
         Assert.Equal("embeddings", good[1]);
+
+        Ollama.GenerateAny("[\"format strings\"]");
+        const string braced = "How do I use string.Format {0} and {name}?";
+        var withBraces = await expertise.ExtractTopicsAsync(braced, "Answer");
+        Assert.Equal(["format strings"], withBraces);
+        Assert.Contains(Ollama.GenerateCalls, prompt => prompt.Contains("{0}", StringComparison.Ordinal) && prompt.Contains("{name}", StringComparison.Ordinal));
     }
 
     [Fact]

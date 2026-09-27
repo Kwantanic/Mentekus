@@ -4,7 +4,7 @@ using Dapper;
 using Mentekus.Api.Features.Expertise.Entities;
 using Mentekus.Api.Infrastructure.ErrorHandling.Exceptions;
 using Mentekus.Api.Shared.Adapters;
-using Microsoft.Extensions.Logging;
+using Npgsql;
 using Pgvector;
 
 namespace Mentekus.Api.Features.Expertise;
@@ -12,50 +12,94 @@ namespace Mentekus.Api.Features.Expertise;
 [RegisterScoped(ServiceType = typeof(IExpertiseService))]
 public class ExpertiseService(
     IOllamaAdapter ollamaAdapter,
-    IDbConnection connection,
+    NpgsqlDataSource dataSource,
+    ITopicExtractionQueue topicQueue,
     ILogger<ExpertiseService> logger) : IExpertiseService
 {
     public async Task UpdateVectorOnlyFromContributionAsync(Guid userId, float[] embedding, string sourceType, float? alphaOverride = null, CancellationToken cancellationToken = default)
     {
-        await UpdateVectorInternalAsync(userId, embedding, sourceType, alphaOverride, cancellationToken);
+        if (embedding == null || embedding.Length == 0)
+            return;
+
+        EmbeddingSize.Require(embedding);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await BlendContributionAsync(connection, transaction, userId, embedding, sourceType, alphaOverride, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task UpdateFromContributionAsync(Guid userId, float[] embedding, string text, string sourceType, float? alphaOverride = null, CancellationToken cancellationToken = default)
     {
-        await UpdateVectorInternalAsync(userId, embedding, sourceType, alphaOverride, cancellationToken);
+        await UpdateVectorOnlyFromContributionAsync(userId, embedding, sourceType, alphaOverride, cancellationToken);
+        await EnqueueTopicsAsync(userId, text, sourceType, cancellationToken);
+    }
 
-        // Optional generate + graph upsert; non-fatal per spec (pure vector path continues to work).
-        // Narrow LLM try per review (Issue 2): only extract/generate is "LLM"; graph upserts use separate/general non-fatal handling.
-        string[]? topics = null;
+    public async Task BlendContributionAsync(IDbConnection connection, IDbTransaction transaction, Guid userId, float[] embedding, string sourceType, float? alphaOverride = null, CancellationToken cancellationToken = default)
+    {
+        if (embedding == null || embedding.Length == 0)
+            return;
+
+        EmbeddingSize.Require(embedding);
+        var row = await connection.QuerySingleOrDefaultAsync<UserEmbeddingRow>(
+            ExpertiseSql.GetUserExpertiseEmbeddingForUpdate,
+            new { UserId = userId },
+            transaction);
+
+        var current = row?.ExpertiseEmbedding?.ToArray();
+        var alpha = alphaOverride ?? GetAlphaForSource(sourceType);
+        var blended = BlendExpertiseVector(current, embedding, alpha, row?.LastExpertiseUpdate);
+        await connection.ExecuteAsync(
+            ExpertiseSql.UpdateUserExpertiseEmbedding,
+            new { UserId = userId, Embedding = new Vector(blended) },
+            transaction);
+    }
+
+    public async Task EnqueueTopicsAsync(Guid userId, string text, string sourceType, CancellationToken cancellationToken = default)
+    {
+        await topicQueue.EnqueueAsync(userId, TruncateForPrompt(text), sourceType, cancellationToken);
+    }
+
+    public async Task ApplyTopicsAsync(Guid userId, string text, string sourceType, CancellationToken cancellationToken = default)
+    {
+        string[] topics;
         try
         {
             topics = await ExtractTopicsInternalAsync(text, sourceType, cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "LLM topic extraction failed for user {UserId} source {SourceType}; vector update succeeded.", userId, sourceType);
-            // Do not throw: error handling for partial LLM failure (vector path unaffected)
+            logger.LogWarning(exception, "Topic extraction failed for user {UserId} source {SourceType}.", userId, sourceType);
+            return;
         }
 
-        if (topics != null && topics.Length > 0)
+        if (topics.Length == 0)
+            return;
+
+        var weight = GetWeightForSource(sourceType);
+        try
         {
-            var weight = GetWeightForSource(sourceType);
+            await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
             foreach (var raw in topics.Take(5))
             {
-                var topicName = raw?.Trim().ToLowerInvariant();
-                if (!string.IsNullOrWhiteSpace(topicName))
+                var topicName = raw.Trim().ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(topicName))
+                    continue;
+
+                try
                 {
-                    try
-                    {
-                        await UpsertTopicAndStrengthAsync(userId, topicName, weight, cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Graph maintenance (DB upsert) failure is also best-effort/non-fatal; use general message (not "LLM")
-                        logger.LogWarning(ex, "Topic graph maintenance failed (non-fatal) after vector update for user {UserId} source {SourceType} topic {Topic}.", userId, sourceType, topicName);
-                    }
+                    await UpsertTopicAndStrengthAsync(connection, userId, topicName, weight);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    logger.LogWarning(exception,
+                        "Topic graph maintenance failed for user {UserId} source {SourceType} topic {Topic}.",
+                        userId, sourceType, topicName);
                 }
             }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Topic graph maintenance failed for user {UserId} source {SourceType}.", userId, sourceType);
         }
     }
 
@@ -66,6 +110,7 @@ public class ExpertiseService(
 
     public async Task<UserExpertiseProfile?> GetUserExpertiseAsync(Guid userId, CancellationToken cancellationToken = default)
     {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync<UserExpertiseRow>(
             ExpertiseSql.FindUserExpertise, new { UserId = userId });
 
@@ -75,14 +120,12 @@ public class ExpertiseService(
         var topicRows = await connection.QueryAsync<TopicStrengthRow>(
             ExpertiseSql.GetUserTopics, new { UserId = userId, Limit = 10 });
 
-        var topTopics = topicRows.Select(t => t.Name).ToArray();
-
         return new UserExpertiseProfile(
             row.UserId,
             row.Name,
             row.Email,
             row.ExpertiseSummary,
-            topTopics,
+            topicRows.Select(topic => topic.Name).ToArray(),
             row.LastExpertiseUpdate);
     }
 
@@ -92,8 +135,8 @@ public class ExpertiseService(
         if (embedding == null || embedding.Length == 0)
             throw new EmbeddingFailedException("Failed to generate embedding for the document.");
 
+        EmbeddingSize.Require(embedding);
         await UpdateFromContributionAsync(userId, embedding, text, ExpertiseSql.DocumentSourceType, cancellationToken: cancellationToken);
-
         return "Document ingested. Expertise updated.";
     }
 
@@ -101,119 +144,55 @@ public class ExpertiseService(
     {
         limit = Math.Clamp(limit <= 0 ? 10 : limit, 1, 50);
 
-        var embedding = await ollamaAdapter.EmbedAsync(query, cancellationToken);
+        var embeddingTask = ollamaAdapter.EmbedAsync(query, cancellationToken);
+        var topicsTask = ExtractTopicsForRoutingAsync(query, cancellationToken);
+        await Task.WhenAll(embeddingTask, topicsTask);
+
+        var embedding = await embeddingTask;
         if (embedding == null || embedding.Length == 0)
             return [];
 
-        var vector = new Pgvector.Vector(embedding);
-
+        var queryTopics = await topicsTask;
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var candidates = (await connection.QueryAsync<UserRoutingRow>(
             ExpertiseSql.FindRoutableUsersWithEmbedding,
-            new { Vector = vector, Limit = Math.Min(limit * 3, 50) })).ToList();
+            new { Vector = new Vector(embedding), Limit = Math.Min(limit * 3, 50) })).ToList();
 
-        if (candidates.Count == 0)
-            return [];
-
-        // Extract topics for query to compute MatchedTopics (uses generate, may be mocked)
-        string[] queryTopics = [];
-        try
+        var matches = new List<ExpertiseRouteMatch>(candidates.Count);
+        foreach (var candidate in candidates)
         {
-            queryTopics = await ExtractTopicsInternalAsync(query, ExpertiseSql.QuestionSourceType, cancellationToken);
-        }
-        catch
-        {
-            queryTopics = [];
-        }
-
-        var matches = new List<ExpertiseRouteMatch>();
-        foreach (var cand in candidates)
-        {
-            var vecSim = ComputeCosineSimilarity(embedding, cand.ExpertiseEmbedding);
-            var userTopics = (await connection.QueryAsync<TopicStrengthRow>(
-                ExpertiseSql.GetUserTopicsForMatch,
-                new { UserId = cand.Id, Limit = 20 })).Select(t => t.Name).ToArray();
-
+            var userTopics = ParseTopicsDefensively(candidate.TopicsJson);
             var matched = queryTopics.Intersect(userTopics, StringComparer.OrdinalIgnoreCase).ToArray();
-
-            // Hybrid score: vec sim primary + bonus for topic overlap (enables promotion of lower-vec but higher-overlap candidates thanks to overfetch)
             var topicBonus = matched.Length > 0 ? Math.Min(matched.Length * 0.05, 0.2) : 0.0;
-            var score = Math.Clamp(vecSim + topicBonus, 0.0, 1.0);
-            var confidence = Math.Clamp(vecSim, 0.0, 1.0);
-
+            var score = Math.Clamp(candidate.VecSim + topicBonus, 0.0, 1.0);
+            var confidence = Math.Clamp(candidate.VecSim, 0.0, 1.0);
             matches.Add(new ExpertiseRouteMatch(
-                cand.Id,
-                cand.Name,
-                cand.Email,
+                candidate.Id,
+                candidate.Name,
+                candidate.Email,
                 score,
-                vecSim,
+                candidate.VecSim,
                 matched,
                 confidence));
         }
 
-        // Re-rank by hybrid score desc, then take the requested limit (overfetch + re-rank allows topic bonus to promote candidates outside pure-vec top-N)
-        matches = matches.OrderByDescending(m => m.Score).ThenByDescending(m => m.VecSim).Take(limit).ToList();
-        return matches;
+        return matches.OrderByDescending(match => match.Score).ThenByDescending(match => match.VecSim).Take(limit).ToList();
     }
 
-    private static double ComputeCosineSimilarity(float[] queryEmb, Pgvector.Vector? userVec)
+    private async Task<string[]> ExtractTopicsForRoutingAsync(string query, CancellationToken cancellationToken)
     {
-        if (userVec == null) return 0.0;
-        var u = userVec.ToArray();
-        if (u.Length != queryEmb.Length) return 0.0;
-        // Compute cosine similarity via dot product / norms (embeddings are positive ~unit; result in [0,1]).
-        // Matches the semantic intent of pgvector <=> ordering used for candidates (higher sim = better).
-        double dot = 0, qn = 0, un = 0;
-        for (int i = 0; i < queryEmb.Length; i++)
+        try
         {
-            dot += queryEmb[i] * u[i];
-            qn += queryEmb[i] * queryEmb[i];
-            un += u[i] * u[i];
+            return await ExtractTopicsInternalAsync(query, ExpertiseSql.QuestionSourceType, cancellationToken);
         }
-        var qNorm = Math.Sqrt(qn);
-        var uNorm = Math.Sqrt(un);
-        if (qNorm == 0 || uNorm == 0) return 0;
-        return dot / (qNorm * uNorm);
-    }
-
-    private async Task UpdateVectorInternalAsync(Guid userId, float[] embedding, string sourceType, float? alphaOverride, CancellationToken cancellationToken)
-    {
-        int dim = ExpertiseSql.EmbeddingDimension;
-        if (embedding == null || embedding.Length == 0)
-            return;
-        if (embedding.Length != dim)
-            throw new ArgumentException($"Embedding must be {dim}-dimensional (got {embedding.Length}).", nameof(embedding));
-
-        var row = await connection.QuerySingleOrDefaultAsync<UserEmbeddingRow>(
-            ExpertiseSql.GetUserExpertiseEmbedding, new { UserId = userId });
-
-        var current = row?.ExpertiseEmbedding?.ToArray();
-        var lastUpdated = row?.LastExpertiseUpdate;
-
-        var alpha = alphaOverride ?? GetAlphaForSource(sourceType);
-        var blended = BlendExpertiseVector(current, embedding, alpha, lastUpdated);
-
-        var vector = new Vector(blended);
-        await connection.ExecuteAsync(ExpertiseSql.UpdateUserExpertiseEmbedding,
-            new { UserId = userId, Embedding = vector });
-    }
-
-    private async Task<string[]> ExtractTopicsInternalAsync(string text, string sourceType, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(text))
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Topic extraction failed during expert routing.");
             return [];
-
-        var template = sourceType == ExpertiseSql.DocumentSourceType
-            ? ExpertiseSql.DocumentTopicExtractionPromptTemplate
-            : ExpertiseSql.GeneralTopicExtractionPromptTemplate;
-
-        var truncated = TruncateForPrompt(text);
-        var prompt = string.Format(template, truncated);
-
-        var result = await ollamaAdapter.GenerateAsync(prompt, cancellationToken);
-        return ParseTopicsDefensively(result);
+        }
     }
 
-    private async Task UpsertTopicAndStrengthAsync(Guid userId, string topicName, float weight, CancellationToken cancellationToken)
+    private async Task UpsertTopicAndStrengthAsync(NpgsqlConnection connection, Guid userId, string topicName, float weight)
     {
         var existingId = await connection.ExecuteScalarAsync<Guid?>(
             ExpertiseSql.GetTopicIdByName, new { Name = topicName });
@@ -229,20 +208,34 @@ public class ExpertiseService(
             await connection.ExecuteAsync(ExpertiseSql.UpsertTopic,
                 new { Id = topicId, Name = topicName, CreatedAt = DateTime.UtcNow });
 
-            // Re-query in case of concurrent insert race on unique name
-            var re = await connection.ExecuteScalarAsync<Guid?>(
+            var reloaded = await connection.ExecuteScalarAsync<Guid?>(
                 ExpertiseSql.GetTopicIdByName, new { Name = topicName });
-            if (!re.HasValue)
+            if (!reloaded.HasValue)
             {
-                // Rare (visibility + concurrent delete race); log for observability before skipping weight (Issue 7)
                 logger.LogDebug("Topic re-query after upsert returned no ID for name {TopicName} (skipping strength update for user {UserId}).", topicName, userId);
                 return;
             }
-            topicId = re.Value;
+
+            topicId = reloaded.Value;
         }
 
         await connection.ExecuteAsync(ExpertiseSql.UpdateUserTopicStrength,
             new { UserId = userId, TopicId = topicId, Strength = weight });
+    }
+
+    private async Task<string[]> ExtractTopicsInternalAsync(string text, string sourceType, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return [];
+
+        var template = sourceType == ExpertiseSql.DocumentSourceType
+            ? ExpertiseSql.DocumentTopicExtractionPromptTemplate
+            : ExpertiseSql.GeneralTopicExtractionPromptTemplate;
+
+        // Replace, not string.Format: contributor text may contain braces.
+        var prompt = template.Replace("{0}", TruncateForPrompt(text), StringComparison.Ordinal);
+        var result = await ollamaAdapter.GenerateAsync(prompt, cancellationToken);
+        return ParseTopicsDefensively(result);
     }
 
     private static float[] BlendExpertiseVector(float[]? current, float[] contribution, float alpha, DateTime? lastUpdatedUtc = null)
@@ -250,22 +243,19 @@ public class ExpertiseService(
         int dim = ExpertiseSql.EmbeddingDimension;
         alpha = Math.Clamp(alpha, 0f, 1f);
 
-        // Guard contribution dim (bug fix Issue 1): prevent IndexOutOfRange on malformed/wrong-dim embed before any indexing.
-        // (Caller also guards null/empty, but Blend is the math core and may be called directly in future/tests.)
         if (contribution == null || contribution.Length != dim)
-        {
             throw new ArgumentException($"Embedding contribution must be {dim}-dimensional (got {contribution?.Length ?? 0}).", nameof(contribution));
-        }
 
-        // No Clone(): ToArray() from caller already provides a fresh array; decay mutation is safe and local (Issue 3).
-        var curr = (current != null && current.Length == dim) ? current : new float[dim];
+        var curr = new float[dim];
+        if (current != null && current.Length == dim)
+            current.AsSpan().CopyTo(curr);
 
         if (lastUpdatedUtc.HasValue)
         {
             var days = (DateTime.UtcNow - lastUpdatedUtc.Value).TotalDays;
             if (days > 0)
             {
-                // Exponential decay, 90-day half-life
+                // Exponential decay, 90-day half-life. Magnitude is what fades, so the next blend weighs the new contribution more.
                 var decay = (float)Math.Pow(0.5, days / 90.0);
                 for (int i = 0; i < dim; i++)
                     curr[i] *= decay;
@@ -274,9 +264,7 @@ public class ExpertiseService(
 
         var blended = new float[dim];
         for (int i = 0; i < dim; i++)
-        {
             blended[i] = alpha * contribution[i] + (1f - alpha) * curr[i];
-        }
 
         return blended;
     }
@@ -312,7 +300,6 @@ public class ExpertiseService(
             var trimmed = result.Trim();
             if (!trimmed.StartsWith('['))
             {
-                // Attempt to extract JSON array substring defensively
                 var start = trimmed.IndexOf('[');
                 var end = trimmed.LastIndexOf(']');
                 if (start >= 0 && end > start)
@@ -326,15 +313,16 @@ public class ExpertiseService(
                 return [];
 
             var list = new List<string>();
-            foreach (var el in doc.RootElement.EnumerateArray())
+            foreach (var element in doc.RootElement.EnumerateArray())
             {
-                if (el.ValueKind == JsonValueKind.String)
-                {
-                    var s = el.GetString();
-                    if (!string.IsNullOrWhiteSpace(s))
-                        list.Add(s.Trim());
-                }
+                if (element.ValueKind != JsonValueKind.String)
+                    continue;
+
+                var value = element.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    list.Add(value.Trim());
             }
+
             return list.ToArray();
         }
         catch

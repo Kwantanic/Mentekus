@@ -13,19 +13,14 @@ public static class DatabaseExtensions
     {
         SqlMapper.AddTypeHandler(new VectorTypeHandler());
 
-        services.AddScoped(serviceProvider =>
+        services.AddSingleton(serviceProvider =>
         {
             var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-            var connectionString = configuration.GetConnectionString("DefaultConnection");
+            var connectionString = configuration.GetConnectionString("DefaultConnection")
+                ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is required.");
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
             dataSourceBuilder.UseVector();
             return dataSourceBuilder.Build();
-        });
-
-        services.AddScoped<IDbConnection>(serviceProvider =>
-        {
-            var dataSource = serviceProvider.GetRequiredService<NpgsqlDataSource>();
-            return dataSource.OpenConnection();
         });
 
         return services;

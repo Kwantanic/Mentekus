@@ -12,9 +12,14 @@ public sealed class SessionClient
     public const string DefaultPassword = "test-password";
 
     private readonly HttpClient _http;
+    private readonly Func<Task>? _afterRequest;
     private string? _xsrf;
 
-    public SessionClient(HttpClient http) => _http = http;
+    public SessionClient(HttpClient http, Func<Task>? afterRequest = null)
+    {
+        _http = http;
+        _afterRequest = afterRequest;
+    }
 
     public HttpClient Http => _http;
 
@@ -28,7 +33,7 @@ public sealed class SessionClient
             Content = JsonContent.Create(body, typeInfo)
         };
         request.Headers.TryAddWithoutValidation(AuthCookies.XsrfHeader, _xsrf);
-        return await _http.SendAsync(request);
+        return await SendAsync(request);
     }
 
     public async Task<HttpResponseMessage> PostRawAsync(string url, HttpContent content)
@@ -39,7 +44,7 @@ public sealed class SessionClient
             Content = content
         };
         request.Headers.TryAddWithoutValidation(AuthCookies.XsrfHeader, _xsrf);
-        return await _http.SendAsync(request);
+        return await SendAsync(request);
     }
 
     public async Task<HttpResponseMessage> PostJsonWithoutXsrfAsync<T>(string url, T body, JsonTypeInfo<T> typeInfo)
@@ -48,7 +53,15 @@ public sealed class SessionClient
         {
             Content = JsonContent.Create(body, typeInfo)
         };
-        return await _http.SendAsync(request);
+        return await SendAsync(request);
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request)
+    {
+        var response = await _http.SendAsync(request);
+        if (_afterRequest != null)
+            await _afterRequest();
+        return response;
     }
 
     public Task<HttpResponseMessage> PostAsync(string url) => PostRawAsync(url, new StringContent(string.Empty));

@@ -1,4 +1,6 @@
 using Dapper;
+using Mentekus.Api.Features.Expertise;
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -26,20 +28,46 @@ public class IntegrationTestBase : IAsyncLifetime
             ConnectionString = PostgreSqlContainer.GetConnectionString()
         };
 
-        Client = CreateSession();
         Services = _factory.Services;
+        Client = CreateSession();
     }
 
     protected SessionClient CreateSession()
     {
         var handler = new CookieJarHandler(_factory.Server.CreateHandler());
         var client = new HttpClient(handler) { BaseAddress = _factory.Server.BaseAddress };
-        return new SessionClient(client);
+        return new SessionClient(client, WaitForTopicsAsync);
+    }
+
+    protected async Task WaitForTopicsAsync()
+    {
+        if (Services == null)
+            return;
+
+        var queue = Services.GetService<TopicExtractionQueue>();
+        if (queue == null)
+            return;
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await queue.WaitUntilIdleAsync(timeout.Token);
     }
 
     public virtual async Task DisposeAsync()
     {
-        if (_factory != null) await _factory.DisposeAsync();
+        if (_factory != null)
+        {
+            try
+            {
+                await WaitForTopicsAsync();
+            }
+            catch (OperationCanceledException)
+            {
+                // Topic extraction did not finish before the host shut down.
+            }
+
+            await _factory.DisposeAsync();
+        }
+
         await PostgreSqlContainer.DisposeAsync();
     }
 }

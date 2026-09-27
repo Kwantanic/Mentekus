@@ -18,10 +18,11 @@ public static class ExpertiseSql
         Text: {0}
         """;
 
-    public const string GetUserExpertiseEmbedding = """
+    public const string GetUserExpertiseEmbeddingForUpdate = """
         SELECT ExpertiseEmbedding, LastExpertiseUpdate
         FROM Users
         WHERE Id = @UserId
+        FOR UPDATE
         """;
 
     public const string UpdateUserExpertiseEmbedding = """
@@ -63,19 +64,33 @@ public static class ExpertiseSql
         """;
 
     public const string FindRoutableUsersWithEmbedding = """
-        SELECT Id, Name, Email, ExpertiseEmbedding
-        FROM Users 
-        WHERE AllowRouting = true AND ExpertiseEmbedding IS NOT NULL
-        ORDER BY ExpertiseEmbedding <=> @Vector
-        LIMIT @Limit
-        """;
-
-    public const string GetUserTopicsForMatch = """
-        SELECT t.Name
-        FROM UserTopicExpertise ute
-        JOIN Topics t ON t.Id = ute.TopicId
-        WHERE ute.UserId = @UserId
-        ORDER BY ute.Strength DESC, t.Name
-        LIMIT @Limit
+        SELECT picked.Id,
+               picked.Name,
+               picked.Email,
+               picked.VecSim,
+               COALESCE(topics.TopicsJson, '[]') AS TopicsJson
+        FROM (
+            SELECT u.Id,
+                   u.Name,
+                   u.Email,
+                   1 - (u.ExpertiseEmbedding <=> @Vector) AS VecSim
+            FROM Users u
+            WHERE u.AllowRouting = true
+              AND u.ExpertiseEmbedding IS NOT NULL
+            ORDER BY u.ExpertiseEmbedding <=> @Vector
+            LIMIT @Limit
+        ) AS picked
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(json_agg(top_topics.Name ORDER BY top_topics.Strength DESC, top_topics.Name)::text, '[]') AS TopicsJson
+            FROM (
+                SELECT t.Name, ute.Strength
+                FROM UserTopicExpertise ute
+                JOIN Topics t ON t.Id = ute.TopicId
+                WHERE ute.UserId = picked.Id
+                ORDER BY ute.Strength DESC, t.Name
+                LIMIT 20
+            ) AS top_topics
+        ) AS topics ON true
+        ORDER BY picked.VecSim DESC
         """;
 }

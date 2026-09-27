@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Dapper;
 using Mentekus.Api.Features.Auth;
+using Mentekus.Api.Features.Expertise;
 using Mentekus.Api.Generated;
 using Mentekus.Api.Infrastructure.ErrorHandling;
 using Mentekus.Api.Serialization;
@@ -21,6 +22,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddDatabase();
 builder.Services.AddAdapters();
+builder.Services.AddTopicExtraction();
 builder.Services.AddCookieAuth();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
